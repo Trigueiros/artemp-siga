@@ -47,7 +47,7 @@ if not st.session_state.logado:
             st.subheader("Login do Usuário")
             user_input = st.text_input("Usuário (Username)")
             senha_input = st.text_input("Senha", type="password")
-            btn_entrar = st.form_submit_button("Entrar no ERP")
+            btn_entrar = st.form_submit_button("Logar agora")
             
             if btn_entrar:
                 # Procura o usuário no banco de dados
@@ -69,7 +69,7 @@ if not st.session_state.logado:
             novo_nome = st.text_input("Nome Completo")
             novo_username = st.text_input("Definir Nome de Usuário (Ex: j.silva)")
             nova_senha = st.text_input("Definir Senha", type="password")
-            novo_cargo = st.selectbox("Cargo/Nível de Acesso:", ["Operador de Almoxarifado", "Supervisor de SGI", "Gerente de Operações"])
+            novo_cargo = st.selectbox("Cargo/Nível de Acesso:", ["Operador de Almoxarifado", "Supervisor de SGI", "Gerente de Operações","Técnico","Diretor","Assistente","Outros"])
             btn_cadastrar = st.form_submit_button("Salvar no Sistema")
             
             if btn_cadastrar:
