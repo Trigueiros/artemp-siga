@@ -35,6 +35,18 @@ class Licenca(Base):
     def __repr__(self):
         return f"<Licença: {self.nome_documento} | Vence em: {self.data_vencimento}>"
 
+# --- NOVA TABELA: USUÁRIOS DO ERP ---
+class Usuario(Base):
+    __tablename__ = 'usuarios_sistema'
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False) # Ex: s.trigueiros
+    senha_hash = Column(String, nullable=False)            # Senha protegida
+    nome_completo = Column(String, nullable=False)
+    cargo = Column(String, default="Operador")             # Ex: Gerente, Almoxarife
+
+Base.metadata.create_all(engine)
+print("Tabela de usuários do ERP criada com sucesso!")
+
 # 3. Executando a criação da tabela no arquivo físico
 
 Base.metadata.create_all(engine)
