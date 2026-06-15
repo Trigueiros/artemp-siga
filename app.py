@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 # Importamos a nova tabela NaoConformidade do banco de dados
-from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF 
+from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban 
 
 # Importações para o Google Drive
 from google.oauth2.credentials import Credentials
@@ -122,7 +122,7 @@ else:
         
     st.sidebar.markdown("---")
     # Adicionada a nova aba "⚠️ Não Conformidades" no menu
-    menu = st.sidebar.radio("Navegação:", ["📊 Dashboard", "📝 Lançamentos", "📅 Licenças", "📂 Gestão Documental", "⚠️ Não Conformidades", "📦 Almoxarifado / Estoque"])
+    menu = st.sidebar.radio("Navegação:", ["📊 Dashboard", "📝 Lançamentos", "📅 Licenças", "📂 Gestão Documental", "⚠️ Não Conformidades", "📦 Almoxarifado / Estoque", "📋 Kanban de Tarefas"])
 
     # ==========================================
     # PÁGINA 1: DASHBOARD
@@ -294,25 +294,32 @@ else:
                         except Exception as e: st.error(f"Erro ao enviar para o Drive: {e}")
                 else: st.error("Por favor, anexe um documento.")
 
-    # ==========================================
-    # PÁGINA 5: NOVA - NÃO CONFORMIDADES (SGI)
+  # ==========================================
+    # PÁGINA 5: NÃO CONFORMIDADES (COM PARETO)
     # ==========================================
     elif menu == "⚠️ Não Conformidades":
-        st.title("⚠️ Tratamento de Não Conformidades e Plano de Ação")
+        st.title("⚠️ Tratamento de Não Conformidades e Matriz de Risco")
         
-        # 1. FORMULÁRIO DE CADASTRO DE NC
+        # 1. FORMULÁRIO DE CADASTRO DE NC COM MATRIZ DE RISCO
         with st.expander("➕ Registrar Nova Não Conformidade (RNC)", expanded=False):
             with st.form("form_nova_nc"):
-                st.subheader("Evidência e Descrição da Ocorrência")
-                desc_input = st.text_area("Descrição Ocorrência / Não Conformidade encontrada:")
+                st.subheader("Evidência e Classificação do Desvio")
+                
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    setor_input = st.selectbox("Setor de Origem do Desvio:", ["Almoxarifado", "Operação/Campo", "SGI/Qualidade", "Manutenção", "Administrativo"])
+                    gravidade_input = st.selectbox("Gravidade (Impacto no Negócio):", ["Leve", "Moderada", "Crítica"])
+                with col_r2:
+                    data_detecao = st.date_input("Data de Identificação", date.today())
+                    prazo_input = st.date_input("Cronograma - Prazo Limite:", date.today() + pd.Timedelta(days=7))
+                
+                desc_input = st.text_area("Descrição Ocorrência / Desvio encontrado:")
                 
                 col_nc1, col_nc2 = st.columns(2)
                 with col_nc1:
-                    acao_input = st.text_area("Ação Proposta (O que será feito para mitigar/resolver?):")
-                    responsavel_input = st.text_input("Colaborador Responsável pela Execução:")
+                    acao_input = st.text_area("Plano de Ação (Correção Imediata/Preventiva):")
                 with col_nc2:
-                    data_detecao = st.date_input("Data de Identificação", date.today())
-                    prazo_input = st.date_input("Cronograma - Prazo Limite para Conclusão da Ação:", date.today())
+                    responsavel_input = st.text_input("Colaborador Responsável pela Execução:")
                 
                 btn_salvar_nc = st.form_submit_button("Emitir Relatório de Não Conformidade")
                 
@@ -321,94 +328,146 @@ else:
                         nova_nc = NaoConformidade(
                             descricao=desc_input, acao_proposta=acao_input,
                             responsavel=responsavel_input, data_registro=data_detecao,
-                            prazo_limite=prazo_input, status="Aberta"
+                            prazo_limite=prazo_input, status="Aberta",
+                            setor_origem=setor_input, gravidade=gravidade_input
                         )
                         session.add(nova_nc)
                         session.commit()
-                        st.success("Não Conformidade registrada no plano de ação com sucesso!")
+                        st.success("Não Conformidade registrada e inserida na Matriz de Risco!")
                         st.rerun()
                     else:
-                        st.error("Por favor, preencha todos os campos do plano de ação.")
+                        st.error("Por favor, preencha os campos de descrição, ação e responsável.")
 
-        st.write("### 📊 Quadro de Planos de Ação e Cronogramas")
-        
+        st.divider()
+
         if todas_ncs:
-            # Monta tabela visual das NCs com a máscara de "Código de ERP"
-            dados_nc_df = pd.DataFrame([{
-                "Código RNC": f"RNC-{n.id:05d}", # Formata o ID para ter 5 dígitos (ex: RNC-00001)
-                "Descrição do Desvio": n.descricao,
-                "Plano de Ação Corretiva": n.acao_proposta,
-                "Responsável": n.responsavel,
-                "Abertura": n.data_registro.strftime('%d/%m/%Y'),
-                "Prazo Final": n.prazo_limite.strftime('%d/%m/%Y'),
-                "Status Atual": n.status
+            # 2. DASHBOARD DE INTELIGÊNCIA DE QUALIDADE (PARETO)
+            st.write("### 📊 Análise de Pareto (Desvios por Setor)")
+            
+            # Converte os dados do banco para um DataFrame Pandas
+            df_ncs = pd.DataFrame([{
+                "Setor": n.setor_origem,
+                "Gravidade": n.gravidade,
+                "Status": n.status
             } for n in todas_ncs])
             
-            st.dataframe(dados_nc_df, use_container_width=True, hide_index=True)
+            # Conta a frequência de RNCs por setor e ordena do maior para o menor
+            pareto_df = df_ncs.groupby("Setor").size().reset_index(name='Frequência')
+            pareto_df = pareto_df.sort_values(by='Frequência', ascending=False)
+            
+            # Cria o gráfico de barras ordenado usando Altair
+            grafico_pareto = alt.Chart(pareto_df).mark_bar(color='#1f77b4').encode(
+                x=alt.X("Setor:N", sort='-y', title="Setor de Origem"),
+                y=alt.Y("Frequência:Q", title="Número de Não Conformidades"),
+                tooltip=['Setor', 'Frequência']
+            ).properties(height=300)
+            
+            st.altair_chart(grafico_pareto, use_container_width=True)
+            
             st.divider()
             
-            # 2. BARRA DE PESQUISA INTELIGENTE
-            st.write("#### 🔍 Buscar e Atualizar RNC")
-            st.info("💡 Você pode digitar apenas o número (Ex: 1) ou o código completo (Ex: RNC-00001)")
+            # 3. QUADRO GERAL E BUSCA
+            st.write("### 📋 Quadro de Planos de Ação")
             
-            busca_rnc = st.text_input("🔎 Digite o Código da RNC para localizar:")
+            dados_nc_df = pd.DataFrame([{
+                "Código RNC": f"RNC-{n.id:05d}",
+                "Setor": n.setor_origem,
+                "Gravidade": n.gravidade,
+                "Descrição do Desvio": n.descricao,
+                "Responsável": n.responsavel,
+                "Prazo Final": n.prazo_limite.strftime('%d/%m/%Y'),
+                "Status": n.status
+            } for n in todas_ncs])
+            
+            # Aplica formatação de cores na tabela para a Gravidade
+            def colorir_gravidade(val):
+                color = '#ff4b4b' if val == 'Crítica' else '#ffa500' if val == 'Moderada' else '#00cc66'
+                return f'color: {color}; font-weight: bold'
+            
+            st.dataframe(dados_nc_df.style.map(colorir_gravidade, subset=['Gravidade']), use_container_width=True, hide_index=True)
+            
+            # 4. BUSCA E ATUALIZAÇÃO INTELIGENTE
+            st.write("#### 🔍 Buscar e Atualizar RNC")
+            busca_rnc = st.text_input("🔎 Digite o Código numérico da RNC para atualizar (Ex: 1):")
             
             if busca_rnc:
-                # O Python extrai apenas os números da frase digitada (ignora letras e traços)
                 id_str = "".join(filter(str.isdigit, busca_rnc))
-                
                 if id_str:
                     id_busca = int(id_str)
                     nc_alterar = session.query(NaoConformidade).filter_by(id=id_busca).first()
                     
                     if nc_alterar:
-                        st.success(f"✅ Ocorrência Encontrada: **RNC-{nc_alterar.id:05d}**")
-                        
-                        # Coloca o formulário de atualização dentro de um quadro bonitão
                         with st.container(border=True):
-                            st.write(f"**Problema Identificado:** {nc_alterar.descricao}")
-                            st.write(f"**Ação Definida:** {nc_alterar.acao_proposta}")
+                            st.write(f"**RNC-{nc_alterar.id:05d} | {nc_alterar.setor_origem} | Risco: {nc_alterar.gravidade}**")
+                            st.write(f"**Falha:** {nc_alterar.descricao}")
                             
                             status_opcoes = ["Aberta", "Em Andamento", "Tratada", "Concluída"]
                             try: idx_status_nc = status_opcoes.index(nc_alterar.status)
                             except: idx_status_nc = 0
                             
-                            novo_status_nc = st.selectbox("Alterar Status da Ação:", status_opcoes, index=idx_status_nc)
-                            novo_prazo_nc = st.date_input("Ajustar Prazo Limite:", value=nc_alterar.prazo_limite)
+                            novo_status_nc = st.selectbox("Atualizar Status da Ação:", status_opcoes, index=idx_status_nc)
                             
                             col_nc_btn1, col_nc_btn2 = st.columns(2)
                             with col_nc_btn1:
                                 if st.button("🔄 Salvar Atualização", use_container_width=True):
                                     nc_alterar.status = novo_status_nc
-                                    nc_alterar.prazo_limite = novo_prazo_nc
                                     session.commit()
-                                    st.success(f"RNC-{nc_alterar.id:05d} atualizada para '{novo_status_nc}'!")
+                                    st.success("RNC atualizada!")
                                     st.rerun()
                             with col_nc_btn2:
-                                if st.checkbox("Confirmar exclusão desta ocorrência"):
+                                if st.checkbox("Confirmar exclusão"):
                                     if st.button("🗑️ Deletar Registro", type="primary", use_container_width=True):
                                         session.delete(nc_alterar)
                                         session.commit()
-                                        st.success("Registro removido!")
+                                        st.success("Removido!")
                                         st.rerun()
                     else:
-                        st.error(f"❌ Nenhuma RNC encontrada com o número {id_busca}. Verifique a tabela acima.")
-                else:
-                    st.warning("⚠️ Por favor, digite um número válido para realizar a busca.")
+                        st.error("RNC não encontrada.")
         else:
-            st.info("Nenhuma Não Conformidade registrada no momento. O SGI está 100% em conformidade!")
+            st.info("Nenhuma Não Conformidade registrada no momento.")
 
 # ==========================================
-    # PÁGINA 6: ALMOXARIFADO / ESTOQUE (FISCAL)
+    # PÁGINA 6: ALMOXARIFADO / ESTOQUE (SGI)
     # ==========================================
     elif menu == "📦 Almoxarifado / Estoque":
-        st.title("📦 Gestão de Almoxarifado e Recebimento de Notas Fiscais")
+        st.title("📦 Almoxarifado, Valoração & Controle de Conformidade Química")
         
-        # Busca os dados atuais do banco
         todos_produtos = session.query(Estoque).all()
         todas_nfs = session.query(EntradaNF).all()
         
-        # 1. FORMULÁRIO DE RECEBIMENTO DE NOTA FISCAL
+        # --- SISTEMA DE ALERTAS AUTOMÁTICOS DE SEGURANÇA (SGI) ---
+        itens_vencidos = []
+        fispq_pendentes = []
+        total_patrimonio = 0.0
+        
+        if todos_produtos:
+            for p in todos_produtos:
+                total_patrimonio += (p.quantidade * p.custo_medio)
+                # Verifica criticidade de validade para Insumos Químicos ou EPIs
+                if p.data_validade and p.data_validade < hoje and p.quantidade > 0:
+                    itens_vencidos.append(p)
+                # Verifica documentação de segurança exigida por norma
+                if p.categoria == "Insumos Químicos" and p.status_fispq in ["Pendente", "Desatualizada"]:
+                    fispq_pendentes.append(p)
+        
+        # KPIs de Controle Financeiro e de Risco
+        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+        col_kpi1.metric(label="💰 Capital Imobilizado", value=f"R$ {total_patrimonio:,.2f}")
+        col_kpi2.metric(label="🚨 Produtos Vencidos em Estoque", value=str(len(itens_vencidos)))
+        col_kpi3.metric(label="📄 Alertas de FISPQ/FDS Pendentes", value=str(len(fispq_pendentes)))
+        
+        # Exibição visual dos alertas do SGI
+        if itens_vencidos:
+            for item in itens_vencidos:
+                st.error(f"🚨 **PRODUTO VENCIDO EM ESTOQUE:** O item **MAT-{item.id:04d} | {item.nome_material}** está com o prazo de validade expirado desde {item.data_validade.strftime('%d/%m/%Y')}. Bloqueie o uso operacional imediato!")
+                
+        if fispq_pendentes:
+            for item in fispq_pendentes:
+                st.warning(f"⚠️ **ALERTA DOCUMENTAL SGI:** O insumo **MAT-{item.id:04d} | {item.nome_material}** está operando com FISPQ/FDS **{item.status_fispq}**. Regularize junto ao fornecedor para evitar desvios em auditorias.")
+        
+        st.divider()
+        
+        # 2. FORMULÁRIO DE RECEBIMENTO DE NOTA FISCAL COM CRITÉRIOS DE QUALIDADE
         with st.expander("🧾 Registrar Entrada de Nota Fiscal (Recebimento)", expanded=False):
             tipo_entrada = st.radio(
                 "O material desta Nota Fiscal já possui cadastro no estoque?", 
@@ -422,97 +481,117 @@ else:
                 with col_nf1:
                     nf_numero = st.text_input("Número da Nota Fiscal (NF-e):")
                     fornecedor_input = st.text_input("Fornecedor / Emitente:")
-                    qtd_recebida = st.number_input("Quantidade Recebida nesta NF:", min_value=0.0, step=1.0)
+                    qtd_recebida = st.number_input("Quantidade Recebida:", min_value=0.0, step=1.0)
+                    preco_unitario_input = st.number_input("Preço Unitário na NF (R$):", min_value=0.0, step=0.01)
                     data_recebimento = st.date_input("Data de Entrada Física:", date.today())
                 
                 with col_nf2:
-                    st.subheader("Vínculo do Produto")
+                    st.subheader("Vínculo & Parâmetros Técnicos")
                     if tipo_entrada == "Sim, produto já cadastrado":
                         if todos_produtos:
-                            # Cria uma lista de seleção com os produtos que já existem
                             opcoes_produtos = [f"MAT-{p.id:04d} | {p.nome_material}" for p in todos_produtos]
                             produto_selecionado = st.selectbox("Selecione o Produto Destino:", opcoes_produtos)
-                            # Deixa os campos de cadastro novos ocultos/vazios
                             nome_novo, cat_nova, und_nova = "", "", ""
                         else:
-                            st.warning("Nenhum produto cadastrado ainda. Mude para a opção 'Produto Novo'.")
+                            st.warning("Nenhum produto cadastrado ainda. Mude para 'Produto Novo'.")
                             produto_selecionado = None
+                        
+                        # Campos para atualizar lote corrente na entrada
+                        validade_lote = st.date_input("Atualizar Validade deste lote (Opcional):", date.today() + pd.Timedelta(days=365))
+                        fispq_lote = st.selectbox("Atualizar Status FISPQ/FDS:", ["Não se aplica", "Regular", "Pendente", "Desatualizada"])
                     else:
-                        # Se for produto novo, abre os campos para criar o registro fixo dele
                         nome_novo = st.text_input("Nome do Novo Material / Produto:")
                         cat_nova = st.selectbox("Categoria:", ["EPI (Equip. Proteção)", "Insumos Químicos", "Ferramentas", "Peças de Reposição", "Outros"])
                         und_nova = st.selectbox("Unidade de Medida:", ["Unidade (un)", "Quilograma (kg)", "Litro (L)", "Caixa (cx)"])
+                        
+                        # Parâmetros de conformidade obrigatórios para novos cadastros
+                        validade_lote = st.date_input("Data de Validade do Produto:", date.today() + pd.Timedelta(days=365))
+                        fispq_lote = st.selectbox("Status inicial da FISPQ/FDS:", ["Não se aplica", "Regular", "Pendente", "Desatualizada"])
                         produto_selecionado = None
                 
-                btn_processar_nf = st.form_submit_button("⚙️ Processar Entrada Fiscal")
+                btn_processar_nf = st.form_submit_button("⚙️ Processar Entrada Fiscal & Validar Critérios")
                 
                 if btn_processar_nf:
-                    if nf_numero and fornecedor_input and qtd_recebida > 0:
+                    if nf_numero and fornecedor_input and qtd_recebida > 0 and preco_unitario_input > 0:
                         
-                        # CENÁRIO A: O produto já existe. Apenas atualizamos o saldo e registramos a NF.
+                        # CENÁRIO A: Produto já cadastrado
                         if tipo_entrada == "Sim, produto já cadastrado" and produto_selecionado:
                             id_produto = int(produto_selecionado.split("|")[0].split("-")[1])
                             produto_bd = session.query(Estoque).filter_by(id=id_produto).first()
                             
                             if produto_bd:
-                                # Soma a quantidade da nova NF ao saldo fixo existente
-                                produto_bd.quantidade += qtd_recebida
+                                # Recálculo do Custo Médio Ponderado
+                                valor_estoque_atual = produto_bd.quantidade * produto_bd.custo_medio
+                                valor_nova_nf = qtd_recebida * preco_unitario_input
+                                nova_qtd_total = produto_bd.quantidade + qtd_recebida
+                                novo_custo_medio = (valor_estoque_atual + valor_nova_nf) / nova_qtd_total
                                 
-                                # Salva o histórico da Nota Fiscal vinculada a ele
+                                # Atualiza dados mestres e critérios técnicos
+                                produto_bd.quantidade = nova_qtd_total
+                                produto_bd.custo_medio = novo_custo_medio
+                                produto_bd.data_validade = validade_lote
+                                produto_bd.status_fispq = fispq_lote
+                                
                                 nova_nota = EntradaNF(
                                     produto_id=produto_bd.id, numero_nf=nf_numero,
                                     fornecedor=fornecedor_input, quantidade_recebida=qtd_recebida,
-                                    data_recebimento=data_recebimento
+                                    preco_unitario=preco_unitario_input, data_recebimento=data_recebimento
                                 )
                                 session.add(nova_nota)
                                 session.commit()
-                                st.success(f"Nota Fiscal {nf_numero} processada! Saldo do item {produto_bd.nome_material} atualizado.")
+                                st.success(f"Nota Fiscal {nf_numero} integrada ao estoque do material {produto_bd.nome_material}!")
                                 st.rerun()
                         
-                        # CENÁRIO B: O produto é novo. Criamos o registro fixo no estoque e atrelamos a NF.
+                        # CENÁRIO B: Novo produto
                         elif tipo_entrada == "Não, é um produto novo" and nome_novo:
-                            # Cria o registro mestre do produto com o saldo inicial da NF
                             novo_produto = Estoque(
                                 nome_material=nome_novo, categoria=cat_nova,
-                                quantidade=qtd_recebida, unidade_medida=und_nova
+                                quantidade=qtd_recebida, unidade_medida=und_nova,
+                                custo_medio=preco_unitario_input,
+                                data_validade=validade_lote, status_fispq=fispq_lote
                             )
                             session.add(novo_produto)
-                            session.flush() # Faz o banco gerar o ID do produto antes do commit final
+                            session.flush()
                             
-                            # Cria o registro da NF apontando para o ID recém-criado
                             nova_nota = EntradaNF(
-                                produto_id=novo_produto.id, numero_nf=nf_numero,
-                                fornecedor=fornecedor_input, quantidade_recebida=qtd_recebida,
+                                produto_id=novo_produto.id, 
+                                numero_nf=nf_numero,
+                                fornecedor=fornecedor_input, 
+                                quantidade_recebida=qtd_recebida,
+                                preco_unitario=preco_unitario_input, 
                                 data_recebimento=data_recebimento
-                              )
+                            
+                            )
                             session.add(nova_nota)
                             session.commit()
-                            st.success(f"Novo produto cadastrado (MAT-{novo_produto.id:04d}) e Nota Fiscal {nf_numero} vinculada!")
+                            st.success(f"Novo item MAT-{novo_produto.id:04d} inserido no catálogo com validações ativas!")
                             st.rerun()
-                        else:
-                            st.error("Preencha as informações do novo produto.")
                     else:
-                        st.error("Por favor, preencha o número da NF, fornecedor e insira uma quantidade válida.")
+                        st.error("Preencha todos os campos do fluxo regulatório.")
 
-        # Visões de Dados em Abas para organizar o ERP
-        aba_saldo, aba_historico_nf = st.tabs(["📋 Posição Atual do Estoque (Saldos)", "🧾 Livro de Registro de Notas Fiscais"])
+        # 3. ABAS DE VISUALIZAÇÃO GERAIS
+        aba_saldo, aba_historico_nf = st.tabs(["📋 Posição de Saldos e Controle Técnico", "🧾 Histórico Financeiro de NFs"])
         
         with aba_saldo:
-            st.write("### Posição Física de Almoxarifado")
+            st.write("### Inventário Físico, Financeiro e de SGI")
             if todos_produtos:
                 df_saldo = pd.DataFrame([{
-                    "Código Código": f"MAT-{p.id:04d}",
+                    "Código": f"MAT-{p.id:04d}",
                     "Descrição do Material": p.nome_material,
                     "Categoria": p.categoria,
-                    "Saldo em Prateleira": f"{p.quantidade} {p.unidade_medida.split('(')[-1].replace(')','')}"
+                    "Qtd Saldo": f"{p.quantidade} {p.unidade_medida.split('(')[-1].replace(')','')}",
+                    "Custo Médio": f"R$ {p.custo_medio:,.2f}",
+                    "Imobilizado": f"R$ {(p.quantidade * p.custo_medio):,.2f}",
+                    "Prazo Validade": p.data_validade.strftime('%d/%m/%Y') if p.data_validade else "Não Controlado",
+                    "Status FISPQ/FDS": p.status_fispq if p.status_fispq else "N/A"
                 } for p in todos_produtos])
                 st.dataframe(df_saldo, use_container_width=True, hide_index=True)
                 
-                # Controle rápido de Saída/Consumo diário (Mantido para baixar o estoque quando usado)
+                # Consumo / Baixa de estoque
                 st.divider()
-                st.write("#### 🔴 Registrar Consumo / Baixa de Material Interno")
+                st.write("#### 🔴 Registrar Saída de Material (Uso Interno)")
                 lista_baixa = [f"MAT-{p.id:04d} | {p.nome_material}" for p in todos_produtos]
-                prod_baixa_sel = st.selectbox("Selecione o item para dar baixa:", lista_baixa, key="baixa_sel")
+                prod_baixa_sel = st.selectbox("Selecione o item para consumo:", lista_baixa, key="baixa_sel")
                 id_baixa = int(prod_baixa_sel.split("|")[0].split("-")[1])
                 prod_baixa_bd = session.query(Estoque).filter_by(id=id_baixa).first()
                 
@@ -520,36 +599,207 @@ else:
                 with col_b1:
                     qtd_consumo = st.number_input("Quantidade Utilizada:", min_value=0.0, step=1.0)
                 with col_b2:
-                    st.write("") # Alinhamento visual
                     st.write("")
-                    if st.button("Confirmar Saída do Almoxarifado", use_container_width=True):
+                    st.write("")
+                    if st.button("Confirmar Saída (Baixa pelo Custo Médio)", use_container_width=True):
                         if prod_baixa_bd and qtd_consumo > 0 and prod_baixa_bd.quantidade >= qtd_consumo:
                             prod_baixa_bd.quantidade -= qtd_consumo
                             session.commit()
-                            st.success("Baixa de consumo processada com sucesso!")
+                            st.success("Baixa realizada e estoque físico atualizado!")
                             st.rerun()
                         else:
-                            st.error("Quantidade inválida ou saldo insuficiente para baixa.")
+                            st.error("Quantidade inválida ou saldo insuficiente.")
             else:
-                st.info("Almoxarifado sem saldos ativos.")
+                st.info("Nenhum saldo ativo no almoxarifado.")
                 
         with aba_historico_nf:
-            st.write("### Histórico de Recebimento de Documentos Fiscais")
+            st.write("### Livro de Registro de Entradas")
             if todas_nfs:
-                # Faz um cruzamento em memória para exibir o nome do produto ao lado do número da NF
                 mapa_nomes_produtos = {p.id: p.nome_material for p in todos_produtos}
-                
                 df_nf = pd.DataFrame([{
                     "Número NF-e": n.numero_nf,
-                    "Fornecedor / Emitente": n.fornecedor,
-                    "Código Material": f"MAT-{n.produto_id:04d}",
-                    "Material Vinculado": mapa_nomes_produtos.get(n.produto_id, "Desconhecido"),
-                    "Volume Recebido": n.quantidade_recebida,
-                    "Data de Chegada": n.data_recebimento.strftime('%d/%m/%Y')
+                    "Fornecedor": n.fornecedor,
+                    "Material": mapa_nomes_produtos.get(n.produto_id, "Desconhecido"),
+                    "Qtd": n.quantidade_recebida,
+                    "Preço Unitário": f"R$ {n.preco_unitario:,.2f}",
+                    "Valor Total NF": f"R$ {(n.quantidade_recebida * n.preco_unitario):,.2f}",
+                    "Data Entrada": n.data_recebimento.strftime('%d/%m/%Y')
                 } for n in todas_nfs])
                 st.dataframe(df_nf, use_container_width=True, hide_index=True)
             else:
-                st.info("Nenhuma Nota Fiscal lançada no livro de registro ainda.")
+                st.info("Nenhum registro documental processado.")
+
+# ==========================================
+    # PÁGINA 7: KANBAN DE TAREFAS (VERSÃO FINAL)
+    # ==========================================
+    elif menu == "📋 Kanban de Tarefas":
+        st.title("📋 Kanban - Gestão Ágil de Tarefas e Prazos")
+        
+        # 1. FORMULÁRIO DE NOVA TAREFA
+        with st.expander("➕ Criar Nova Tarefa", expanded=False):
+            with st.form("form_nova_tarefa"):
+                t_titulo = st.text_input("Título da Tarefa:")
+                t_desc = st.text_area("Descrição ou Detalhes (Opcional):")
+                
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    t_resp = st.text_input("Responsável pela Execução:")
+                with col_t2:
+                    t_prazo = st.date_input("Prazo Limite para Entrega:")
+                
+                if st.form_submit_button("Adicionar ao Quadro Kanban"):
+                    if t_titulo and t_resp:
+                        nova_tarefa = TarefaKanban(
+                            titulo=t_titulo, descricao=t_desc, 
+                            responsavel=t_resp, prazo=t_prazo
+                        )
+                        session.add(nova_tarefa)
+                        session.commit()
+                        st.success("Tarefa criada e enviada para a coluna 'A Fazer'!")
+                        st.rerun()
+                    else:
+                        st.error("Preencha o Título e o Responsável.")
+
+        st.divider()
+
+        todas_tarefas = session.query(TarefaKanban).all()
+        
+        # 2. QUADRO KANBAN VISUAL (3 COLUNAS)
+        col_todo, col_doing, col_done = st.columns(3)
+        
+        with col_todo:
+            st.subheader("🔴 A Fazer")
+            tarefas_todo = [t for t in todas_tarefas if t.status == "A Fazer"]
+            for t in tarefas_todo:
+                with st.container(border=True):
+                    st.write(f"**{t.titulo}**")
+                    if t.descricao: st.caption(t.descricao)
+                    st.write(f"👤 {t.responsavel}")
+                    st.write(f"📅 Prazo: {t.prazo.strftime('%d/%m/%Y')}")
+                    
+                    if t.prazo < hoje: st.error("⚠️ Atrasado!")
+                    
+                    if st.button("▶️ Iniciar", key=f"start_{t.id}", use_container_width=True):
+                        t.status = "Em Andamento"
+                        session.commit()
+                        st.rerun()
+
+        with col_doing:
+            st.subheader("🟡 Em Andamento")
+            tarefas_doing = [t for t in todas_tarefas if t.status == "Em Andamento"]
+            for t in tarefas_doing:
+                with st.container(border=True):
+                    st.write(f"**{t.titulo}**")
+                    if t.descricao: st.caption(t.descricao)
+                    st.write(f"👤 {t.responsavel}")
+                    st.write(f"📅 Prazo: {t.prazo.strftime('%d/%m/%Y')}")
+                    
+                    if t.prazo < hoje: st.error("⚠️ Atrasado!")
+                    
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("⏪ Voltar", key=f"back_{t.id}", use_container_width=True):
+                            t.status = "A Fazer"
+                            session.commit()
+                            st.rerun()
+                    with col_btn2:
+                        if st.button("✅ Concluir", key=f"done_{t.id}", type="primary", use_container_width=True):
+                            t.status = "Concluída"
+                            session.commit()
+                            st.rerun()
+
+        with col_done:
+            st.subheader("🟢 Concluída")
+            tarefas_done = [t for t in todas_tarefas if t.status == "Concluída"]
+            for t in tarefas_done:
+                with st.container(border=True):
+                    st.write(f"~~**{t.titulo}**~~")
+                    st.write(f"👤 {t.responsavel}")
+                    st.success("Finalizada")
+                    
+                    col_done_btn1, col_done_btn2 = st.columns(2)
+                    with col_done_btn1:
+                        if st.button("⏪ Voltar", key=f"revert_{t.id}", use_container_width=True):
+                            t.status = "Em Andamento"
+                            session.commit()
+                            st.rerun()
+                    with col_done_btn2:
+                        if st.button("🗄️ Arquivar", key=f"arq_{t.id}", use_container_width=True):
+                            t.status = "Arquivada"
+                            session.commit()
+                            st.rerun()
+                            
+        st.divider()
+        
+        # 3. NOVA FUNCIONALIDADE: EDITAR PRAZO DE TAREFAS ATIVAS
+        tarefas_ativas = [t for t in todas_tarefas if t.status in ["A Fazer", "Em Andamento"]]
+        
+        if tarefas_ativas:
+            with st.expander("⚙️ Prorrogar / Ajustar Prazo de Tarefa Ativa", expanded=False):
+                col_ed1, col_ed2 = st.columns([2, 1])
+                
+                with col_ed1:
+                    # Monta a lista de seleção apenas com tarefas que ainda não foram concluídas
+                    opcoes_ativas = [f"ID {t.id} | {t.titulo} (Responsável: {t.responsavel})" for t in tarefas_ativas]
+                    tarefa_sel_texto = st.selectbox("Selecione a tarefa que ganhou flexibilidade de tempo:", opcoes_ativas, key="sel_ed_prazo")
+                    id_ed = int(tarefa_sel_texto.split("|")[0].replace("ID ", "").strip())
+                
+                tarefa_ed_bd = session.query(TarefaKanban).filter_by(id=id_ed).first()
+                
+                if tarefa_ed_bd:
+                    with col_ed2:
+                        # Mostra um seletor de data pré-preenchido com o prazo atual da tarefa
+                        novo_prazo = st.date_input("Definir Nova Data Limite:", value=tarefa_ed_bd.prazo, key=f"date_ed_{id_ed}")
+                    
+                    if st.button("💾 Salvar Alteração de Cronograma", use_container_width=True, key=f"btn_ed_{id_ed}"):
+                        tarefa_ed_bd.prazo = novo_prazo
+                        session.commit()
+                        st.success(f"Sucesso! O prazo da tarefa '{tarefa_ed_bd.titulo}' foi reajustado para {novo_prazo.strftime('%d/%m/%Y')}.")
+                        st.rerun()
+        
+        st.divider()
+        
+        # 4. HISTÓRICO DE TAREFAS ARQUIVADAS
+        with st.expander("🗄️ Consultar Arquivo Morto (Histórico de Tarefas)", expanded=False):
+            tarefas_arquivadas = [t for t in todas_tarefas if t.status == "Arquivada"]
+            
+            if tarefas_arquivadas:
+                df_arq = pd.DataFrame([{
+                    "ID": t.id,
+                    "Título da Tarefa": t.titulo,
+                    "Responsável": t.responsavel,
+                    "Prazo Original": t.prazo.strftime('%d/%m/%Y'),
+                    "Data Criação": t.data_criacao.strftime('%d/%m/%Y') if t.data_criacao else "N/D"
+                } for t in tarefas_arquivadas])
+                
+                st.dataframe(df_arq, use_container_width=True, hide_index=True)
+                
+                st.write("#### 🔧 Gerenciar Arquivo")
+                col_rest, col_del = st.columns([1, 2])
+                with col_rest:
+                    id_selecionado = st.selectbox("Selecione o ID da Tarefa para gerenciar:", [t.id for t in tarefas_arquivadas])
+                
+                if id_selecionado:
+                    tarefa_restaurar = session.query(TarefaKanban).filter_by(id=id_selecionado).first()
+                    with col_del:
+                        st.write("")
+                        st.write("")
+                        col_acao1, col_acao2 = st.columns(2)
+                        with col_acao1:
+                            if st.button("⏪ Restaurar para 'Concluída'", use_container_width=True):
+                                tarefa_restaurar.status = "Concluída"
+                                session.commit()
+                                st.success("Tarefa restaurada para o quadro Kanban!")
+                                st.rerun()
+                        with col_acao2:
+                            if st.checkbox("Confirmar exclusão permanente"):
+                                if st.button("🗑️ Deletar Definitivamente", type="primary", use_container_width=True):
+                                    session.delete(tarefa_restaurar)
+                                    session.commit()
+                                    st.success("Tarefa excluída do banco de dados!")
+                                    st.rerun()
+            else:
+                st.info("O arquivo morto está vazio. Nenhuma tarefa foi arquivada no momento.")
 
 
 session.close()

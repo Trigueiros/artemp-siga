@@ -54,6 +54,8 @@ class NaoConformidade(Base):
     data_registro = Column(Date, default=date.today) # Quando foi identificada?
     prazo_limite = Column(Date, nullable=False)     # Cronograma (Data Alvo)
     status = Column(String, default="Aberta")       # Aberta, Em Andamento, Concluída
+    setor_origem = Column(String, default="Não Informado") # Onde ocorreu a falha
+    gravidade = Column(String, default="Moderada")         # Leve, Moderada, Crítica
 
 Base.metadata.create_all(engine)
 print("Tabela de usuários do ERP criada com sucesso!")
@@ -69,6 +71,11 @@ class Estoque(Base):
     fornecedor = Column(String, nullable=False)
     nota_fiscal = Column(String, nullable=True)     # Opcional
     data_entrada = Column(Date, default=date.today)
+    custo_medio = Column(Float, default=0.0)        # <-- NOVA COLUNA: VALOR DA UNIDADE
+    
+    # --- NOVAS COLUNAS PARA CONTROLE DE QUALIDADE E SGI ---
+    data_validade = Column(Date, nullable=True)    # Prazo de validade do insumo
+    status_fispq = Column(String, default="Não se aplica") # Regulamentação técnica
 
 print("Tabela de Estoque criada com sucesso!")
 
@@ -80,8 +87,19 @@ class EntradaNF(Base):
     numero_nf = Column(String, nullable=False)           # Número da Nota Fiscal corrente
     fornecedor = Column(String, nullable=False)
     quantidade_recebida = Column(Float, nullable=False)  # Qtd vinda nesta NF específica
+    preco_unitario = Column(Float, nullable=False)   # <-- NOVA COLUNA: PREÇO NA NF
     data_recebimento = Column(Date, default=date.today)
 
+# --- NOVA TABELA: GESTÃO ÁGIL (KANBAN) ---
+class TarefaKanban(Base):
+    __tablename__ = 'kanban_tarefas'
+    id = Column(Integer, primary_key=True)
+    titulo = Column(String, nullable=False)
+    descricao = Column(String, nullable=True)
+    responsavel = Column(String, nullable=False)
+    prazo = Column(Date, nullable=False)
+    status = Column(String, default="A Fazer") # A Fazer, Em Andamento, Concluída
+    data_criacao = Column(Date, default=date.today)
 
 # 3. Executando a criação da tabela no arquivo físico
 
