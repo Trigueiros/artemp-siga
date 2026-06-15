@@ -44,8 +44,44 @@ class Usuario(Base):
     nome_completo = Column(String, nullable=False)
     cargo = Column(String, default="Operador")             # Ex: Gerente, Almoxarife
 
+# --- NOVA TABELA: TRATAMENTO DE NÃO CONFORMIDADES (SGI) ---
+class NaoConformidade(Base):
+    __tablename__ = 'nao_conformidades'
+    id = Column(Integer, primary_key=True)
+    descricao = Column(String, nullable=False)      # O que aconteceu de errado?
+    acao_proposta = Column(String, nullable=False)  # Como vamos resolver?
+    responsavel = Column(String, nullable=False)    # Quem vai executar?
+    data_registro = Column(Date, default=date.today) # Quando foi identificada?
+    prazo_limite = Column(Date, nullable=False)     # Cronograma (Data Alvo)
+    status = Column(String, default="Aberta")       # Aberta, Em Andamento, Concluída
+
 Base.metadata.create_all(engine)
 print("Tabela de usuários do ERP criada com sucesso!")
+
+# --- NOVA TABELA: ALMOXARIFADO E ESTOQUE ---
+class Estoque(Base):
+    __tablename__ = 'controle_estoque'
+    id = Column(Integer, primary_key=True)
+    nome_material = Column(String, nullable=False)
+    categoria = Column(String, nullable=False)      # Ex: EPI, Insumo Químico, Ferramenta
+    quantidade = Column(Float, nullable=False)      # Saldo atual
+    unidade_medida = Column(String, nullable=False) # Ex: un, kg, L, cx
+    fornecedor = Column(String, nullable=False)
+    nota_fiscal = Column(String, nullable=True)     # Opcional
+    data_entrada = Column(Date, default=date.today)
+
+print("Tabela de Estoque criada com sucesso!")
+
+# --- NOVA TABELA: HISTÓRICO DE ENTRADAS DE NOTAS FISCAIS ---
+class EntradaNF(Base):
+    __tablename__ = 'entradas_nota_fiscal'
+    id = Column(Integer, primary_key=True)
+    produto_id = Column(Integer, nullable=False)         # Aponta para o ID fixo do produto no Estoque
+    numero_nf = Column(String, nullable=False)           # Número da Nota Fiscal corrente
+    fornecedor = Column(String, nullable=False)
+    quantidade_recebida = Column(Float, nullable=False)  # Qtd vinda nesta NF específica
+    data_recebimento = Column(Date, default=date.today)
+
 
 # 3. Executando a criação da tabela no arquivo físico
 
