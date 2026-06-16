@@ -43,6 +43,7 @@ class Usuario(Base):
     senha_hash = Column(String, nullable=False)            # Senha protegida
     nome_completo = Column(String, nullable=False)
     cargo = Column(String, default="Operador")             # Ex: Gerente, Almoxarife
+    modulos_acesso = Column(String, default="📊 Dashboard")
 
 # --- NOVA TABELA: TRATAMENTO DE NÃO CONFORMIDADES (SGI) ---
 class NaoConformidade(Base):
@@ -100,6 +101,51 @@ class TarefaKanban(Base):
     prazo = Column(Date, nullable=False)
     status = Column(String, default="A Fazer") # A Fazer, Em Andamento, Concluída
     data_criacao = Column(Date, default=date.today)
+
+# --- NOVAS TABELAS: MÓDULO DE PRODUÇÃO (MRP) ---
+class OrdemProducao(Base):
+    __tablename__ = 'ordens_producao'
+    id = Column(Integer, primary_key=True)
+    codigo_op = Column(String, unique=True, nullable=False)
+    nome_produto = Column(String, nullable=False)
+    quantidade_esperada = Column(Float, nullable=False)
+    status = Column(String, default="Aberta") # Aberta, Em Produção, Concluída
+    data_abertura = Column(Date, default=date.today)
+    data_conclusao = Column(Date, nullable=True)
+    custo_total = Column(Float, default=0.0)
+
+class ConsumoOP(Base):
+    __tablename__ = 'consumo_op'
+    id = Column(Integer, primary_key=True)
+    op_id = Column(Integer, nullable=False)
+    material_id = Column(Integer, nullable=False)
+    quantidade_consumida = Column(Float, nullable=False)
+    custo_alocado = Column(Float, nullable=False)
+
+# --- NOVO ESTOQUE: PRODUTOS ACABADOS ---
+class ProdutoAcabado(Base):
+    __tablename__ = 'estoque_produtos_acabados'
+    id = Column(Integer, primary_key=True)
+    codigo = Column(String, unique=True, nullable=False)
+    descricao = Column(String, nullable=False)
+    quantidade = Column(Float, default=0.0)
+    custo_unitario = Column(Float, default=0.0)
+    valor_total = Column(Float, default=0.0)
+    data_ultima_entrada = Column(Date, default=date.today)
+
+
+# --- NOVA TABELA: COMERCIAL E FATURAMENTO ---
+class Venda(Base):
+    __tablename__ = 'registro_vendas'
+    id = Column(Integer, primary_key=True)
+    produto_id = Column(Integer, nullable=False) # Refere-se ao ProdutoAcabado.id
+    nome_produto = Column(String, nullable=False)
+    cliente = Column(String, nullable=False)
+    quantidade_vendida = Column(Float, nullable=False)
+    preco_unitario_venda = Column(Float, nullable=False)
+    valor_total_venda = Column(Float, nullable=False)
+    custo_total_produto = Column(Float, nullable=False) # Para apuração do lucro (CMV)
+    data_venda = Column(Date, default=date.today)
 
 # 3. Executando a criação da tabela no arquivo físico
 

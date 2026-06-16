@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 # Importamos a nova tabela NaoConformidade do banco de dados
-from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban 
+from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda
 
 # Importações para o Google Drive
 from google.oauth2.credentials import Credentials
@@ -55,6 +55,10 @@ if not st.session_state.logado:
                     st.session_state.logado = True
                     st.session_state.usuario_atual = usuario_encontrado.nome_completo
                     st.session_state.cargo_atual = usuario_encontrado.cargo
+                    
+                    # 🔹 ADICIONA ESTA LINHA AQUI:
+                    st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
+                    
                     st.success(f"Acesso autorizado! Bem-vindo.")
                     st.rerun()
                 else:
@@ -122,7 +126,32 @@ else:
         
     st.sidebar.markdown("---")
     # Adicionada a nova aba "⚠️ Não Conformidades" no menu
-    menu = st.sidebar.radio("Navegação:", ["📊 Dashboard", "📝 Lançamentos", "📅 Licenças", "📂 Gestão Documental", "⚠️ Não Conformidades", "📦 Almoxarifado / Estoque", "📋 Kanban de Tarefas"])
+    # --- NOVO MENU DINÂMICO ---
+    TODOS_MODULOS = [
+        "📊 Dashboard", 
+        "📝 Lançamentos", 
+        "📅 Licenças", 
+        "📂 Gestão Documental", 
+        "⚠️ Não Conformidades",
+        "📦 Almoxarifado / Estoque",
+        "🏭 Produção (MRP)",
+        "💰 Comercial / Vendas", 
+        "📋 Kanban de Tarefas", 
+        "⚙️ Painel Admin"
+    ]
+
+    # Verifica o que o usuário pode ver baseado na memória do login
+    if st.session_state.cargo_atual == "Super Admin" or st.session_state.modulos_acesso == "TODOS":
+        modulos_permitidos = TODOS_MODULOS
+    else:
+        # Pega o texto do banco (ex: "📊 Dashboard,🏭 Produção (MRP)") e quebra em uma lista
+        modulos_permitidos = st.session_state.modulos_acesso.split(",")
+        
+        # Trava de segurança caso a lista venha vazia
+        if not modulos_permitidos or modulos_permitidos == [""]:
+            modulos_permitidos = ["📊 Dashboard"]
+
+    menu = st.sidebar.radio("Navegação:", modulos_permitidos)
 
     # ==========================================
     # PÁGINA 1: DASHBOARD
@@ -800,6 +829,370 @@ else:
                                     st.rerun()
             else:
                 st.info("O arquivo morto está vazio. Nenhuma tarefa foi arquivada no momento.")
+
+# ==========================================
+    # PÁGINA 8: PRODUÇÃO (MRP) E PRODUTOS ACABADOS
+    # ==========================================
+    elif menu == "🏭 Produção (MRP)":
+        st.title("🏭 Controle de Produção e Produtos Acabados")
+        
+        tab_op, tab_estoque_final = st.tabs(["📋 Gestão de Ordens de Produção", "📦 Inventário de Produtos Acabados"])
+        
+        # --- ABA 1: ORDENS DE PRODUÇÃO ---
+        with tab_op:
+            # 1. Abertura de OP
+            with st.expander("➕ Abrir Nova Ordem de Produção (OP)", expanded=False):
+                
+                # Lógica de rastreio automático: busca a última OP registrada para gerar a próxima
+                ultima_op = session.query(OrdemProducao).order_by(OrdemProducao.id.desc()).first()
+                proximo_numero = ultima_op.id + 1 if ultima_op else 1
+                codigo_gerado = f"OP-{proximo_numero:03d}"
+                
+                with st.form("form_nova_op"):
+                    col_op1, col_op2 = st.columns(2)
+                    with col_op1:
+                        # Campo bloqueado (disabled=True) para evitar erro humano
+                        st.text_input("Código da OP (Gerado Automaticamente):", value=codigo_gerado, disabled=True)
+                        nome_prod = st.text_input("Nome do Produto a ser Fabricado:")
+                    with col_op2:
+                        qtd_esperada = st.number_input("Quantidade Esperada (Unidades/Litros):", min_value=0.1, format="%.2f")
+                    
+                    if st.form_submit_button("Abrir OP"):
+                        if nome_prod:
+                            # O sistema salva usando a variável codigo_gerado que ele mesmo criou
+                            nova_op = OrdemProducao(codigo_op=codigo_gerado, nome_produto=nome_prod, quantidade_esperada=qtd_esperada)
+                            session.add(nova_op)
+                            session.commit()
+                            st.success(f"Ordem de Produção {codigo_gerado} aberta com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Preencha o nome do produto.")
+            
+            st.divider()
+            
+            
+           # 2. Requisição de Materiais e Apontamento
+            ops_abertas = session.query(OrdemProducao).filter_by(status="Aberta").all()
+            if ops_abertas:
+                st.subheader("⚙️ Requisição de Materiais para Produção")
+                
+                with st.container(border=True):
+                    # Aqui nascem as colunas que estavam faltando!
+                    col_req1, col_req2 = st.columns([1, 2])
+                    
+                    with col_req1:
+                        op_selecionada = st.selectbox("Selecione a OP Aberta:", [f"{op.id} | {op.codigo_op} - {op.nome_produto}" for op in ops_abertas])
+                        id_op = int(op_selecionada.split(" | ")[0])
+                        op_atual = session.query(OrdemProducao).filter_by(id=id_op).first()
+                    
+                    with col_req2:
+                        todos_insumos = session.query(Estoque).all()
+                        insumo_sel = st.selectbox(
+                            "Selecione a Matéria-Prima / Insumo (Almoxarifado):", 
+                            [f"{i.id} | {i.nome_material} (Saldo: {i.quantidade} {i.unidade_medida})" for i in todos_insumos if i.quantidade > 0]
+                        )
+                        id_insumo = int(insumo_sel.split(" | ")[0])
+                        insumo_atual = session.query(Estoque).filter_by(id=id_insumo).first()
+                    
+                    # Alinhamento recuado para fora das colunas
+                    qtd_requisitar = st.number_input(f"Quantidade a transferir para a OP ({insumo_atual.unidade_medida}):", min_value=0.01, max_value=float(insumo_atual.quantidade), format="%.2f")
+                    
+                    if st.button("🔽 Baixar Insumo para Produção", type="primary", use_container_width=True):
+                        # Calcula o custo da matéria prima baseada no custo médio atual do almoxarifado
+                        custo_consumo = qtd_requisitar * insumo_atual.custo_medio
+                        
+                        # 1. Dá baixa física no Almoxarifado Geral
+                        insumo_atual.quantidade -= qtd_requisitar
+                        
+                        # 2. Registra o consumo rastreável na OP
+                        novo_consumo = ConsumoOP(
+                            op_id=op_atual.id, 
+                            material_id=insumo_atual.id, 
+                            quantidade_consumida=qtd_requisitar, 
+                            custo_alocado=custo_consumo
+                        )
+                        session.add(novo_consumo)
+                        
+                        # 3. Atualiza o custo financeiro total da OP
+                        op_atual.custo_total += custo_consumo
+                        
+                        session.commit()
+                        st.success(f"Insumo baixado! R$ {custo_consumo:.2f} agregados ao custo da OP.")
+                        st.rerun()
+
+                st.divider()
+            st.divider()
+                
+                # 3. Fechamento da OP
+            st.subheader("✅ Encerramento de Ordem de Produção")
+                
+            opcoes_encerramento = [f"{op.id} | {op.codigo_op} - {op.nome_produto} (Custo Atual: R$ {op.custo_total:.2f})" for op in ops_abertas]
+            op_encerrar_str = st.selectbox("Selecione a OP para Finalizar e gerar Produto Acabado:", opcoes_encerramento)
+                
+                # O ESCUDO: Só executa se o Streamlit realmente carregou um texto na caixa de seleção
+            if op_encerrar_str:
+                    id_op_encerrar = int(op_encerrar_str.split(" | ")[0])
+                    op_encerrar = session.query(OrdemProducao).filter_by(id=id_op_encerrar).first()
+                    
+                    qtd_produzida_real = st.number_input("Quantidade Real Produzida:", value=float(op_encerrar.quantidade_esperada), format="%.2f")
+                    
+                    if st.button("🔒 Finalizar OP e Transferir para Estoque Acabado", use_container_width=True):
+                        # Calcula o Custo Unitário Final do produto gerado
+                        custo_unit_final = op_encerrar.custo_total / qtd_produzida_real if qtd_produzida_real > 0 else 0
+                        
+                        # Procura se o Produto Acabado já existe no estoque isolado
+                        produto_existente = session.query(ProdutoAcabado).filter_by(descricao=op_encerrar.nome_produto).first()
+                        
+                        if produto_existente:
+                            # Se já existe, atualiza a quantidade e faz o custo médio ponderado
+                            valor_total_antigo = produto_existente.quantidade * produto_existente.custo_unitario
+                            novo_valor_total = valor_total_antigo + op_encerrar.custo_total
+                            produto_existente.quantidade += qtd_produzida_real
+                            produto_existente.custo_unitario = novo_valor_total / produto_existente.quantidade
+                            produto_existente.valor_total = novo_valor_total
+                            produto_existente.data_ultima_entrada = date.today()
+                        else:
+                            # Se não existe, cria um registro novo no inventário de acabados
+                            novo_produto = ProdutoAcabado(
+                                codigo=op_encerrar.codigo_op, 
+                                descricao=op_encerrar.nome_produto, 
+                                quantidade=qtd_produzida_real, 
+                                custo_unitario=custo_unit_final,
+                                valor_total=op_encerrar.custo_total
+                            )
+                            session.add(novo_produto)
+                        
+                        # Muda o status da OP para não aparecer mais
+                        op_encerrar.status = "Concluída"
+                        op_encerrar.data_conclusao = date.today()
+                        
+                        session.commit()
+                        st.success(f"OP Finalizada! O item '{op_encerrar.nome_produto}' já está no Inventário de Produtos Acabados.")
+                        st.rerun()
+            else:
+                st.info("Não há Ordens de Produção abertas no momento.")
+
+        # --- ABA 2: INVENTÁRIO DE PRODUTOS ACABADOS ---
+        with tab_estoque_final:
+            st.subheader("📦 Galpão de Produtos Acabados (Finalizados)")
+            
+            produtos_acabados = session.query(ProdutoAcabado).all()
+            
+            if produtos_acabados:
+                capital_final_imobilizado = sum([p.valor_total for p in produtos_acabados])
+                
+                st.metric("Capital Imobilizado (Produtos Prontos para Venda/Uso)", f"R$ {capital_final_imobilizado:.2f}")
+                
+                df_acabados = pd.DataFrame([{
+                    "Código (Última OP)": p.codigo,
+                    "Descrição do Produto Final": p.descricao,
+                    "Saldo Físico": f"{p.quantidade:.2f}",
+                    "Custo de Produção (Unit)": f"R$ {p.custo_unitario:.2f}",
+                    "Valor Imobilizado": f"R$ {p.valor_total:.2f}",
+                    "Última Produção": p.data_ultima_entrada.strftime('%d/%m/%Y')
+                } for p in produtos_acabados])
+                
+                st.dataframe(df_acabados, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum produto acabado consta no inventário separado.")
+
+# ==========================================
+    # PÁGINA 9: COMERCIAL E FATURAMENTO
+    # ==========================================
+    elif menu == "💰 Comercial / Vendas":
+        st.title("💰 Gestão Comercial e Faturamento")
+        
+        tab_venda, tab_relatorio = st.tabs(["🛒 Registrar Novo Pedido de Venda", "📈 Relatório de Faturamento"])
+        
+        # --- ABA 1: REGISTRAR VENDA ---
+        with tab_venda:
+            produtos_disponiveis = session.query(ProdutoAcabado).filter(ProdutoAcabado.quantidade > 0).all()
+            
+            if produtos_disponiveis:
+                with st.container(border=True):
+                    st.subheader("Emitir Pedido de Venda")
+                    
+                    col_v1, col_v2 = st.columns([2, 1])
+                    
+                    with col_v1:
+                        produto_sel = st.selectbox(
+                            "Selecione o Produto Acabado:", 
+                            [f"{p.id} | {p.codigo} - {p.descricao} (Estoque: {p.quantidade:.2f} unid. / Custo Unit: R$ {p.custo_unitario:.2f})" for p in produtos_disponiveis]
+                        )
+                        id_produto = int(produto_sel.split(" | ")[0])
+                        produto_atual = session.query(ProdutoAcabado).filter_by(id=id_produto).first()
+                        
+                        cliente_input = st.text_input("Nome do Cliente / Empresa:")
+                    
+                    with col_v2:
+                        qtd_venda = st.number_input("Quantidade a Vender:", min_value=0.01, max_value=float(produto_atual.quantidade), format="%.2f")
+                        preco_venda = st.number_input("Preço de Venda (Por Unidade):", min_value=0.01, value=float(produto_atual.custo_unitario * 1.5), format="%.2f") # Sugere 50% de Markup
+                    
+                    if st.button("✅ Confirmar Venda e Baixar Estoque", type="primary", use_container_width=True):
+                        if cliente_input:
+                            # 1. Cálculos Financeiros
+                            receita_total = qtd_venda * preco_venda
+                            custo_total_venda = qtd_venda * produto_atual.custo_unitario
+                            lucro_bruto = receita_total - custo_total_venda
+                            margem_percentual = (lucro_bruto / receita_total) * 100 if receita_total > 0 else 0
+                            
+                            # 2. Dá baixa física e financeira no estoque de acabados
+                            produto_atual.quantidade -= qtd_venda
+                            produto_atual.valor_total = produto_atual.quantidade * produto_atual.custo_unitario
+                            
+                            # 3. Registra a transação
+                            nova_venda = Venda(
+                                produto_id=produto_atual.id,
+                                nome_produto=produto_atual.descricao,
+                                cliente=cliente_input,
+                                quantidade_vendida=qtd_venda,
+                                preco_unitario_venda=preco_venda,
+                                valor_total_venda=receita_total,
+                                custo_total_produto=custo_total_venda
+                            )
+                            session.add(nova_venda)
+                            session.commit()
+                            
+                            st.success(f"Venda registrada com sucesso! Lucro Bruto da operação: R$ {lucro_bruto:.2f} ({margem_percentual:.1f}% de Margem).")
+                            st.rerun()
+                        else:
+                            st.error("Por favor, preencha o nome do cliente.")
+            else:
+                st.info("Não há Produtos Acabados em estoque para venda. Finalize uma OP primeiro.")
+
+        # --- ABA 2: RELATÓRIO DE FATURAMENTO ---
+        with tab_relatorio:
+            todas_vendas = session.query(Venda).order_by(Venda.data_venda.desc()).all()
+            
+            if todas_vendas:
+                faturamento_total = sum([v.valor_total_venda for v in todas_vendas])
+                custo_total_cmv = sum([v.custo_total_produto for v in todas_vendas])
+                lucro_total = faturamento_total - custo_total_cmv
+                
+                col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+                col_kpi1.metric("Faturamento (Receita Bruta)", f"R$ {faturamento_total:.2f}")
+                col_kpi2.metric("Custo dos Produtos (CMV)", f"R$ {custo_total_cmv:.2f}", delta="Saída", delta_color="inverse")
+                col_kpi3.metric("Lucro Bruto Operacional", f"R$ {lucro_total:.2f}")
+                
+                st.divider()
+                st.subheader("🧾 Histórico de Transações")
+                
+                df_vendas = pd.DataFrame([{
+                    "ID Venda": v.id,
+                    "Data": v.data_venda.strftime('%d/%m/%Y'),
+                    "Cliente": v.cliente,
+                    "Produto": v.nome_produto,
+                    "Qtd": f"{v.quantidade_vendida:.2f}",
+                    "Preço Unitário": f"R$ {v.preco_unitario_venda:.2f}",
+                    "Receita Total": f"R$ {v.valor_total_venda:.2f}",
+                    "Margem (R$)": f"R$ {(v.valor_total_venda - v.custo_total_produto):.2f}"
+                } for v in todas_vendas])
+                
+                st.dataframe(df_vendas, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhuma venda registrada até o momento.")
+
+# 🔹 ADICIONA ESTE BLOCO NO FINAL DO TEU APP.PY:
+    elif menu == "⚙️ Painel Admin":
+        if st.session_state.cargo_atual != "Super Admin":
+            st.error("🚫 Acesso Negado. Apenas o Super Administrador pode aceder a este módulo.")
+        else:
+            st.title("⚙️ Administração do Sistema e Utilizadores")
+            st.write("Cria novos utilizadores e define quais os módulos do ERP que cada um pode aceder.")
+            
+            with st.expander("👤 Cadastrar Novo Utilizador / Funcionário", expanded=True):
+                with st.form("form_novo_usuario"):
+                    col_u1, col_u2 = st.columns(2)
+                    with col_u1:
+                        nome_func = st.text_input("Nome Completo:")
+                        login_func = st.text_input("Utilizador (Login):")
+                    with col_u2:
+                        senha_func = st.text_input("Senha:", type="password")
+                        cargo_func = st.text_input("Cargo (Ex: Operador de Produção, Vendedor):")
+                    
+                    st.divider()
+                    st.write("**Liberação de Módulos (Selecione o que o funcionário pode aceder):**")
+                    
+                    modulos_selecionados = []
+                    col_cb1, col_cb2, col_cb3 = st.columns(3)
+                    
+                    for idx, mod in enumerate(TODOS_MODULOS[:-1]):
+                        if idx % 3 == 0:
+                            with col_cb1:
+                                if st.checkbox(mod, key=f"cb_{idx}"): modulos_selecionados.append(mod)
+                        elif idx % 3 == 1:
+                            with col_cb2:
+                                if st.checkbox(mod, key=f"cb_{idx}"): modulos_selecionados.append(mod)
+                        else:
+                            with col_cb3:
+                                if st.checkbox(mod, key=f"cb_{idx}"): modulos_selecionados.append(mod)
+                                
+                    if st.form_submit_button("Salvar Utilizador", type="primary"):
+                        if login_func and senha_func:
+                            hash_senha = criptografar_senha(senha_func)
+                            string_modulos = ",".join(modulos_selecionados)
+                            novo_usr = Usuario(
+                                username=login_func,
+                                senha_hash=hash_senha, 
+                                nome_completo=nome_func,
+                                cargo=cargo_func,
+                                modulos_acesso=string_modulos
+                            )
+                            session.add(novo_usr)
+                            session.commit()
+                            st.success(f"Funcionário '{nome_func}' cadastrado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Preencha o utilizador e a senha.")
+
+# --- NOVO BLOCO: EDITAR E REVOGAR ACESSOS ---
+            with st.expander("✏️ Editar ou Revogar Permissões de Usuários Existentes", expanded=False):
+                # Busca todos os usuários, exceto o Super Admin (para evitar que você tranque a si mesmo de fora)
+                usuarios_existentes = session.query(Usuario).filter(Usuario.cargo != "Super Admin").all()
+                
+                if usuarios_existentes:
+                    usuario_selecionado = st.selectbox(
+                        "Selecione o Funcionário para alterar acessos:", 
+                        [f"{u.id} | {u.nome_completo} ({u.cargo})" for u in usuarios_existentes]
+                    )
+                    
+                    # Puxa o ID do usuário selecionado no menu suspenso
+                    id_edit = int(usuario_selecionado.split(" | ")[0])
+                    usr_edit = session.query(Usuario).filter_by(id=id_edit).first()
+                    
+                    st.write(f"**Editando acessos de:** {usr_edit.nome_completo} ({usr_edit.username})")
+                    
+                    # Descobre quais módulos ele já tem hoje para deixar as caixinhas pré-marcadas
+                    modulos_atuais = usr_edit.modulos_acesso.split(",") if usr_edit.modulos_acesso else []
+                    
+                    with st.form("form_editar_permissoes"):
+                        modulos_atualizados = []
+                        col_e1, col_e2, col_e3 = st.columns(3)
+                        
+                        for idx, mod in enumerate(TODOS_MODULOS[:-1]):
+                            # A caixinha já aparece marcada se o módulo estiver no banco de dados dele
+                            is_checked = mod in modulos_atuais
+                            
+                            if idx % 3 == 0:
+                                with col_e1:
+                                    if st.checkbox(mod, value=is_checked, key=f"edit_cb_{idx}"): modulos_atualizados.append(mod)
+                            elif idx % 3 == 1:
+                                with col_e2:
+                                    if st.checkbox(mod, value=is_checked, key=f"edit_cb_{idx}"): modulos_atualizados.append(mod)
+                            else:
+                                with col_e3:
+                                    if st.checkbox(mod, value=is_checked, key=f"edit_cb_{idx}"): modulos_atualizados.append(mod)
+                                    
+                        if st.form_submit_button("🔄 Atualizar Permissões", type="primary"):
+                            # Transforma a nova lista de marcações em texto e salva por cima da antiga
+                            nova_string_modulos = ",".join(modulos_atualizados)
+                            usr_edit.modulos_acesso = nova_string_modulos
+                            session.commit()
+                            
+                            st.success(f"Permissões de {usr_edit.nome_completo} atualizadas com sucesso!")
+                            st.rerun()
+                else:
+                    st.info("Nenhum usuário comum cadastrado ainda para ser editado.")
 
 
 session.close()
