@@ -32,15 +32,15 @@ def criptografar_senha(senha):
 # =====================================================================
 # GATILHO DE INICIALIZAÇÃO BLINDADO (Cria ou Força a Atualização)
 # =====================================================================
-admin_existe = session.query(Usuario).filter_by(username="s.strigueiros").first()
-senha_padrao = criptografar_senha("S@muel0098") 
+admin_existe = session.query(Usuario).filter_by(username="ss.strigueiros").first()
+senha_padrao = criptografar_senha("S@muel0099") 
 
 if not admin_existe:
     # Se não existir, cria do zero
     primeiro_admin = Usuario(
-        username="s.strigueiros",
+        username="ss.strigueiros",
         senha_hash=senha_padrao,
-        nome_completo="Samuel De Souza Trigueiros",
+        nome_completo="Samuel de Souza Trigueiros",
         cargo="Super Admin",
         modulos_acesso="TODOS"
     )
