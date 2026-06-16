@@ -28,9 +28,6 @@ session = Session()
 def criptografar_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
-# (O seu código já tem essa parte, ache ela:)
-def criptografar_senha(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
 
 # =====================================================================
 # GATILHO DE INICIALIZAÇÃO BLINDADO (Cria ou Força a Atualização)
@@ -82,20 +79,27 @@ if not st.session_state.logado:
             btn_entrar = st.form_submit_button("Entrar no ERP")
             
             if btn_entrar:
-                hash_busca = criptografar_senha(senha_input)
-                usuario_encontrado = session.query(Usuario).filter_by(username=user_input, senha_hash=hash_busca).first()
+                # 1. Limpeza rigorosa: remove espaços no início/fim e força minúsculas
+                usuario_limpo = user_input.strip().lower()
+                senha_limpa = senha_input.strip()
+                
+                # 2. Criptografa a senha já limpa
+                hash_busca = criptografar_senha(senha_limpa)
+                
+                # 3. Faz a busca no banco usando os dados tratados
+                usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
+                
                 if usuario_encontrado:
                     st.session_state.logado = True
                     st.session_state.usuario_atual = usuario_encontrado.nome_completo
                     st.session_state.cargo_atual = usuario_encontrado.cargo
-                    
-                    # 🔹 ADICIONA ESTA LINHA AQUI:
                     st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
                     
-                    st.success(f"Acesso autorizado! Bem-vindo.")
+                    st.success("Acesso autorizado! Bem-vindo.")
                     st.rerun()
                 else:
-                    st.error("Usuário ou senha incorretos.")
+                    # Mensagem de erro mais descritiva para depuração
+                    st.error(f"Acesso negado para o usuário '{usuario_limpo}'. Verifique as credenciais.")
                     
     with aba_cadastro:
         with st.form("form_cadastro_usuario"):
