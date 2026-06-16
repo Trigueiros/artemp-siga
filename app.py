@@ -33,12 +33,13 @@ def criptografar_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 # =====================================================================
-# GATILHO DE INICIALIZAÇÃO BLINDADO (Força a criação do SEU usuário)
+# GATILHO DE INICIALIZAÇÃO BLINDADO (Cria ou Força a Atualização)
 # =====================================================================
 admin_existe = session.query(Usuario).filter_by(username="s.strigueiros").first()
+senha_padrao = criptografar_senha("S@muel0098") 
 
 if not admin_existe:
-    senha_padrao = criptografar_senha("S@muel0098") 
+    # Se não existir, cria do zero
     primeiro_admin = Usuario(
         username="s.strigueiros",
         senha_hash=senha_padrao,
@@ -47,6 +48,12 @@ if not admin_existe:
         modulos_acesso="TODOS"
     )
     session.add(primeiro_admin)
+    session.commit()
+else:
+    # Se já existir (travado), esmaga a senha antiga e força a nova e os acessos totais
+    admin_existe.senha_hash = senha_padrao
+    admin_existe.cargo = "Super Admin"
+    admin_existe.modulos_acesso = "TODOS"
     session.commit()
 # =====================================================================
 
