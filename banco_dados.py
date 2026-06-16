@@ -147,6 +147,10 @@ class Venda(Base):
     custo_total_produto = Column(Float, nullable=False) # Para apuração do lucro (CMV)
     data_venda = Column(Date, default=date.today)
 
+    # --- NOVAS COLUNAS FISCAIS ---
+    status_fiscal = Column(String, default="Pendente") # Pendente, Emitida, Erro
+    numero_nf = Column(String, nullable=True)          # Guardará o número da NFC-e/NF-e
+
 # 3. Executando a criação da tabela no arquivo físico
 
 Base.metadata.create_all(engine)

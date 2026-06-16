@@ -1002,7 +1002,8 @@ else:
     elif menu == "💰 Comercial / Vendas":
         st.title("💰 Gestão Comercial e Faturamento")
         
-        tab_venda, tab_relatorio = st.tabs(["🛒 Registrar Novo Pedido de Venda", "📈 Relatório de Faturamento"])
+        # Adicionada a nova aba fiscal
+        tab_venda, tab_relatorio, tab_fiscal = st.tabs(["🛒 Registrar Novo Pedido", "📈 Relatório de Faturamento", "🧾 Painel Fiscal (NF-e/NFC-e)"])
         
         # --- ABA 1: REGISTRAR VENDA ---
         with tab_venda:
@@ -1026,21 +1027,16 @@ else:
                     
                     with col_v2:
                         qtd_venda = st.number_input("Quantidade a Vender:", min_value=0.01, max_value=float(produto_atual.quantidade), format="%.2f")
-                        preco_venda = st.number_input("Preço de Venda (Por Unidade):", min_value=0.01, value=float(produto_atual.custo_unitario * 1.5), format="%.2f") # Sugere 50% de Markup
+                        preco_venda = st.number_input("Preço de Venda (Por Unidade):", min_value=0.01, value=float(produto_atual.custo_unitario * 1.5), format="%.2f")
                     
                     if st.button("✅ Confirmar Venda e Baixar Estoque", type="primary", use_container_width=True):
                         if cliente_input:
-                            # 1. Cálculos Financeiros
                             receita_total = qtd_venda * preco_venda
                             custo_total_venda = qtd_venda * produto_atual.custo_unitario
-                            lucro_bruto = receita_total - custo_total_venda
-                            margem_percentual = (lucro_bruto / receita_total) * 100 if receita_total > 0 else 0
                             
-                            # 2. Dá baixa física e financeira no estoque de acabados
                             produto_atual.quantidade -= qtd_venda
                             produto_atual.valor_total = produto_atual.quantidade * produto_atual.custo_unitario
                             
-                            # 3. Registra a transação
                             nova_venda = Venda(
                                 produto_id=produto_atual.id,
                                 nome_produto=produto_atual.descricao,
@@ -1048,17 +1044,18 @@ else:
                                 quantidade_vendida=qtd_venda,
                                 preco_unitario_venda=preco_venda,
                                 valor_total_venda=receita_total,
-                                custo_total_produto=custo_total_venda
+                                custo_total_produto=custo_total_venda,
+                                status_fiscal="Pendente" # Nasce pendente de emissão
                             )
                             session.add(nova_venda)
                             session.commit()
                             
-                            st.success(f"Venda registrada com sucesso! Lucro Bruto da operação: R$ {lucro_bruto:.2f} ({margem_percentual:.1f}% de Margem).")
+                            st.success(f"Venda registrada! O pedido foi enviado para o Painel Fiscal para emissão da nota.")
                             st.rerun()
                         else:
                             st.error("Por favor, preencha o nome do cliente.")
             else:
-                st.info("Não há Produtos Acabados em estoque para venda. Finalize uma OP primeiro.")
+                st.info("Não há Produtos Acabados em estoque para venda.")
 
         # --- ABA 2: RELATÓRIO DE FATURAMENTO ---
         with tab_relatorio:
@@ -1070,27 +1067,87 @@ else:
                 lucro_total = faturamento_total - custo_total_cmv
                 
                 col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-                col_kpi1.metric("Faturamento (Receita Bruta)", f"R$ {faturamento_total:.2f}")
-                col_kpi2.metric("Custo dos Produtos (CMV)", f"R$ {custo_total_cmv:.2f}", delta="Saída", delta_color="inverse")
-                col_kpi3.metric("Lucro Bruto Operacional", f"R$ {lucro_total:.2f}")
+                col_kpi1.metric("Faturamento", f"R$ {faturamento_total:.2f}")
+                col_kpi2.metric("CMV", f"R$ {custo_total_cmv:.2f}", delta="Saída", delta_color="inverse")
+                col_kpi3.metric("Lucro Bruto", f"R$ {lucro_total:.2f}")
                 
                 st.divider()
-                st.subheader("🧾 Histórico de Transações")
                 
                 df_vendas = pd.DataFrame([{
-                    "ID Venda": v.id,
+                    "ID": v.id,
                     "Data": v.data_venda.strftime('%d/%m/%Y'),
                     "Cliente": v.cliente,
                     "Produto": v.nome_produto,
-                    "Qtd": f"{v.quantidade_vendida:.2f}",
-                    "Preço Unitário": f"R$ {v.preco_unitario_venda:.2f}",
-                    "Receita Total": f"R$ {v.valor_total_venda:.2f}",
-                    "Margem (R$)": f"R$ {(v.valor_total_venda - v.custo_total_produto):.2f}"
+                    "Total": f"R$ {v.valor_total_venda:.2f}",
+                    "Status Fiscal": v.status_fiscal,
+                    "Nº NF": v.numero_nf if v.numero_nf else "-"
                 } for v in todas_vendas])
                 
                 st.dataframe(df_vendas, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhuma venda registrada até o momento.")
+                
+        # --- ABA 3: PAINEL FISCAL (MÓDULO SEFAZ / API) ---
+        with tab_fiscal:
+            st.subheader("📡 Central de Integração com SEFAZ")
+            
+            vendas_pendentes = session.query(Venda).filter_by(status_fiscal="Pendente").all()
+            
+            if vendas_pendentes:
+                st.warning(f"Existem {len(vendas_pendentes)} vendas aguardando emissão de nota fiscal.")
+                
+                venda_sel_str = st.selectbox(
+                    "Selecione o pedido para faturar:", 
+                    [f"{v.id} | Cliente: {v.cliente} - {v.nome_produto} (R$ {v.valor_total_venda:.2f})" for v in vendas_pendentes]
+                )
+                
+                id_venda_fiscal = int(venda_sel_str.split(" | ")[0])
+                venda_fiscal = session.query(Venda).filter_by(id=id_venda_fiscal).first()
+                
+                tipo_nota = st.radio("Selecione o modelo da nota:", ["NFC-e (Consumidor Final)", "NF-e (Produto/Atacado)"], horizontal=True)
+                
+                st.divider()
+                st.write("**Simulação do Payload (JSON que será enviado para a API):**")
+                
+                # Este é o esqueleto exato da estrutura que a API vai exigir na próxima etapa
+                payload_mock = {
+                    "natureza_operacao": "Venda de mercadoria",
+                    "data_emissao": date.today().isoformat(),
+                    "consumidor_final": 1 if "NFC-e" in tipo_nota else 0,
+                    "itens": [
+                        {
+                            "numero_item": 1,
+                            "descricao": venda_fiscal.nome_produto,
+                            "cfop": "5102", # Código padrão para revenda/venda estadual
+                            "unidade_comercial": "UN",
+                            "quantidade_comercial": venda_fiscal.quantidade_vendida,
+                            "valor_unitario_comercial": venda_fiscal.preco_unitario_venda,
+                            "valor_bruto": venda_fiscal.valor_total_venda,
+                        }
+                    ],
+                    "pagamentos": [
+                        {
+                            "forma_pagamento": "Dinheiro/Pix",
+                            "valor_pagamento": venda_fiscal.valor_total_venda
+                        }
+                    ]
+                }
+                
+                st.json(payload_mock)
+                
+                if st.button("🚀 Simular Envio para SEFAZ", type="primary"):
+                    # Aqui, futuramente, entrará o código do requests.post(url_api)
+                    numero_ficticio = f"000{venda_fiscal.id}984"
+                    
+                    # Atualiza o banco de dados simulando a resposta de sucesso da API
+                    venda_fiscal.status_fiscal = "Emitida"
+                    venda_fiscal.numero_nf = numero_ficticio
+                    session.commit()
+                    
+                    st.success(f"Sucesso! A {tipo_nota[:5]} número {numero_ficticio} foi autorizada pela SEFAZ.")
+                    st.rerun()
+            else:
+                st.success("Tudo certo! Não há pedidos pendentes de faturamento fiscal.")
 
 # 🔹 ADICIONA ESTE BLOCO NO FINAL DO TEU APP.PY:
     elif menu == "⚙️ Painel Admin":
