@@ -22,6 +22,22 @@ engine = create_engine('sqlite:///artemp_siga.db', echo=False)
 Session = sessionmaker(bind=engine)
 session = Session()
 
+# =====================================================================
+# GATILHO DE INICIALIZAÇÃO DA NUVEM (Cria o 1º Super Admin)
+# =====================================================================
+if not session.query(Usuario).first():
+    senha_padrao = criptografar_senha("S@muel0098") # <-- Defina a sua senha aqui
+    primeiro_admin = Usuario(
+        username="s.strigueiros",
+        senha_hash=senha_padrao,
+        nome_completo="Samuel De Souza Trigueiros",
+        cargo="Super Admin",
+        modulos_acesso="TODOS"
+    )
+    session.add(primeiro_admin)
+    session.commit()
+# =====================================================================
+
 def criptografar_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
