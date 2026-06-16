@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import hashlib
-import json
+import json 
+import requests # <-- NOVA BIBLIOTECA AQUI
 from datetime import date
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
@@ -1135,19 +1136,51 @@ else:
                 
                 st.json(payload_mock)
                 
-                if st.button("🚀 Simular Envio para SEFAZ", type="primary"):
-                    # Aqui, futuramente, entrará o código do requests.post(url_api)
-                    numero_ficticio = f"000{venda_fiscal.id}984"
-                    
-                    # Atualiza o banco de dados simulando a resposta de sucesso da API
-                    venda_fiscal.status_fiscal = "Emitida"
-                    venda_fiscal.numero_nf = numero_ficticio
-                    session.commit()
-                    
-                    st.success(f"Sucesso! A {tipo_nota[:5]} número {numero_ficticio} foi autorizada pela SEFAZ.")
-                    st.rerun()
-            else:
-                st.success("Tudo certo! Não há pedidos pendentes de faturamento fiscal.")
+                if st.button("🚀 Enviar para SEFAZ-BA (API Focus NFe)", type="primary"):
+                    try:
+                        # 1. Pega a senha silenciosamente do seu cofre
+                        token = st.secrets["focus_nfe"]["token_sandbox"]
+                        
+                        # 2. Define para qual endereço o pacote vai (Endpoint de NFC-e)
+                        url_api = "https://api.focusnfe.com.br/v2/nfce"
+                        
+                        # A Focus NFe usa o token como usuário e deixa a senha em branco
+                        autenticacao = (token, "") 
+                        
+                        # 3. Dispara a requisição para a internet
+                        with st.spinner("Conectando aos servidores do Governo da Bahia..."):
+                            # Usamos um timeout para o sistema não travar se a SEFAZ estiver fora do ar
+                            resposta = requests.post(url_api, json=payload_mock, auth=autenticacao, timeout=15)
+                        
+                        # 4. O Cérebro: Interpreta a resposta da SEFAZ
+                        if resposta.status_code in [200, 201, 202]:
+                            # Sucesso! A nota foi gerada ou está em processamento
+                            dados_retorno = resposta.json()
+                            
+                            # Puxa o número oficial ou cria um rastreio provisório
+                            numero_oficial = dados_retorno.get("numero", f"API-{venda_fiscal.id}")
+                            
+                            # Grava no seu banco de dados
+                            venda_fiscal.status_fiscal = "Emitida"
+                            venda_fiscal.numero_nf = numero_oficial
+                            session.commit()
+                            
+                            st.success(f"✅ Sucesso! NFC-e {numero_oficial} autorizada.")
+                            st.rerun()
+                        else:
+                            # Rejeição da SEFAZ (ex: NCM do chocolate incorreto, CNPJ inválido)
+                            # O sistema tenta ler a mensagem de erro oficial para você saber o que corrigir
+                            try:
+                                erro_msg = resposta.json().get("mensagem", resposta.text)
+                            except:
+                                erro_msg = resposta.text
+                                
+                            st.error(f"❌ Rejeição Fiscal (Código {resposta.status_code}): {erro_msg}")
+                            
+                    except FileNotFoundError:
+                         st.error("⚠️ Arquivo secrets.toml não encontrado na pasta .streamlit!")
+                    except Exception as e:
+                        st.error(f"⚠️ Erro de conexão de rede com a API: {e}")
 
 # 🔹 ADICIONA ESTE BLOCO NO FINAL DO TEU APP.PY:
     elif menu == "⚙️ Painel Admin":
