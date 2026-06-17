@@ -193,53 +193,137 @@ else:
     # ==========================================
     # PÁGINA 1: DASHBOARD
     # ==========================================
-    if menu == "📊 Dashboard":
-        st.title("📊 Painel de Indicadores Ambientais")
-        st.write("### 🔍 Filtrar Período de Consulta")
-        col_filtro1, col_filtro2 = st.columns(2)
-        
-        with col_filtro1:
-            mes_escolhido_nome = st.selectbox("Selecione o Mês:", NOMES_MESES, index=hoje.month - 1)
-            mes_escolhido_num = NOMES_MESES.index(mes_escolhido_nome) + 1
-        with col_filtro2:
-            ano_escolhido = st.selectbox("Selecione o Ano:", [ano_atual, ano_atual - 1])
-
-        if not df.empty:
-            df_mes = df[(df['Data de Registro'].dt.month == mes_escolhido_num) & (df['Data de Registro'].dt.year == ano_escolhido)]
-            total_mes = df_mes['Peso (kg)'].sum()
-        else:
-            total_mes = 0.0
-
-        licencas_criticas = sum(1 for lic in todas_licencas if (lic.data_vencimento - hoje).days <= 30)
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric(f"Gerado em {mes_escolhido_nome}/{ano_escolhido}", f"{total_mes:.1f} kg")
-        col2.metric("Total Histórico Acumulado", f"{df['Peso (kg)'].sum():.1f} kg" if not df.empty else "0.0 kg")
-        col3.metric("⚠️ Licenças Críticas", str(licencas_criticas))
-
-        st.divider()
-
-        if not df.empty:
-            st.write("#### Distribuição por Classe (Histórico Geral)")
-            peso_por_classe = df.groupby("Classe")["Peso (kg)"].sum().reset_index()
-            
-            # Usamos o Altair para forçar a amarração exata (Domain = Range)
-            grafico = alt.Chart(peso_por_classe).mark_bar().encode(
-                x=alt.X("Peso (kg):Q", title="Peso (kg)"),
-                y=alt.Y("Classe:N", title="Classe", sort=["Classe I", "Classe II-A", "Classe II-B"]),
-                color=alt.Color(
-                    "Classe:N",
-                    scale=alt.Scale(
-                        domain=["Classe I", "Classe II-A", "Classe II-B"], # A Classe...
-                        range=["#ff2d2d", "#00e73a", "#ffc107"]             # ...recebe esta cor exata.
-                    ),
-                    legend=None # Esconde a legenda para o painel ficar mais limpo
-                )
-            )
-            st.altair_chart(grafico, use_container_width=True)
-
     # ==========================================
-    # PÁGINA 2: LANÇAMENTOS
+    # PÁGINA 1: DASHBOARD (HÍBRIDO)
+    # ==========================================
+    if menu == "📊 Dashboard":
+        st.title("📊 Painel de Controle e Inteligência")
+        
+        # Separando os mundos: Artemp (SGI) vs Financeiro (Contabilidade Social)
+        aba_ambiental, aba_financeira = st.tabs(["🌱 Indicadores Ambientais (SGI)", "💰 Inteligência Financeira (DRE)"])
+        
+        # ---------------------------------------------------------
+        # ABA 1: O SEU CÓDIGO AMBIENTAL ORIGINAL (MANTIDO INTACTO)
+        # ---------------------------------------------------------
+        with aba_ambiental:
+            st.write("### 🔍 Filtrar Período de Consulta")
+            col_filtro1, col_filtro2 = st.columns(2)
+            
+            with col_filtro1:
+                mes_escolhido_nome = st.selectbox("Selecione o Mês:", NOMES_MESES, index=hoje.month - 1)
+                mes_escolhido_num = NOMES_MESES.index(mes_escolhido_nome) + 1
+            with col_filtro2:
+                ano_escolhido = st.selectbox("Selecione o Ano:", [ano_atual, ano_atual - 1])
+
+            if not df.empty:
+                df_mes = df[(df['Data de Registro'].dt.month == mes_escolhido_num) & (df['Data de Registro'].dt.year == ano_escolhido)]
+                total_mes = df_mes['Peso (kg)'].sum()
+            else:
+                total_mes = 0.0
+
+            licencas_criticas = sum(1 for lic in todas_licencas if (lic.data_vencimento - hoje).days <= 30)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric(f"Gerado em {mes_escolhido_nome}/{ano_escolhido}", f"{total_mes:.1f} kg")
+            col2.metric("Total Histórico Acumulado", f"{df['Peso (kg)'].sum():.1f} kg" if not df.empty else "0.0 kg")
+            col3.metric("⚠️ Licenças Críticas", str(licencas_criticas))
+
+            st.divider()
+
+            if not df.empty:
+                st.write("#### Distribuição por Classe (Histórico Geral)")
+                peso_por_classe = df.groupby("Classe")["Peso (kg)"].sum().reset_index()
+                
+                grafico = alt.Chart(peso_por_classe).mark_bar().encode(
+                    x=alt.X("Peso (kg):Q", title="Peso (kg)"),
+                    y=alt.Y("Classe:N", title="Classe", sort=["Classe I", "Classe II-A", "Classe II-B"]),
+                    color=alt.Color(
+                        "Classe:N",
+                        scale=alt.Scale(
+                            domain=["Classe I", "Classe II-A", "Classe II-B"],
+                            range=["#ff2d2d", "#00e73a", "#ffc107"]
+                        ),
+                        legend=None
+                    )
+                )
+                st.altair_chart(grafico, use_container_width=True)
+
+        # ---------------------------------------------------------
+        # ABA 2: O NOVO DASHBOARD FINANCEIRO E DRE
+        # ---------------------------------------------------------
+        with aba_financeira:
+            st.write("### Visão Geral de Resultados e Margens")
+
+            # Busca todas as vendas registradas no banco para compor a DRE
+            vendas = session.query(Venda).all()
+            
+            if not vendas:
+                st.info("O painel será alimentado automaticamente assim que a primeira venda for registrada no módulo Comercial.")
+            else:
+                # 1. CÁLCULO DOS INDICADORES ECONÔMICOS
+                receita_bruta = sum(v.valor_total_venda for v in vendas)
+                custo_cmv = sum(v.custo_total_produto for v in vendas)
+                lucro_bruto = receita_bruta - custo_cmv
+                
+                margem_lucro = (lucro_bruto / receita_bruta * 100) if receita_bruta > 0 else 0
+
+                # 2. EXIBIÇÃO DA DRE SIMPLIFICADA
+                st.subheader("DRE Simplificada (Acumulada)")
+                col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+                
+                col_f1.metric("Receita Bruta", f"R$ {receita_bruta:.2f}")
+                col_f2.metric("CMV (Custo Produção)", f"R$ {custo_cmv:.2f}", delta="- Saída de Caixa", delta_color="inverse")
+                col_f3.metric("Lucro Bruto", f"R$ {lucro_bruto:.2f}", delta="Geração de Valor")
+                col_f4.metric("Margem Bruta", f"{margem_lucro:.1f} %")
+
+                st.divider()
+
+                # 3. PREPARAÇÃO DOS DADOS PARA O GRÁFICO (Receita vs Custo)
+                st.subheader("📈 Faturamento vs Custos por Pedido")
+                
+                df_grafico = pd.DataFrame([{
+                    "ID da Venda": f"Pedido #{v.id}",
+                    "Receita (R$)": v.valor_total_venda,
+                    "Custo (R$)": v.custo_total_produto,
+                    "Produto": v.nome_produto
+                } for v in vendas])
+
+                df_melted = df_grafico.melt(
+                    id_vars=["ID da Venda", "Produto"], 
+                    value_vars=["Receita (R$)", "Custo (R$)"],
+                    var_name="Tipo", 
+                    value_name="Valor"
+                )
+
+                # 4. GRÁFICO ALTAIR
+                grafico_barras = alt.Chart(df_melted).mark_bar().encode(
+                    x=alt.X('ID da Venda:N', title='Histórico de Pedidos', sort=None),
+                    y=alt.Y('Valor:Q', title='Valores (R$)'),
+                    color=alt.Color('Tipo:N', scale=alt.Scale(domain=['Receita (R$)', 'Custo (R$)'], range=['#2e7b32', '#d32f2f'])),
+                    tooltip=['Produto', 'Tipo', 'Valor']
+                ).properties(height=400).interactive()
+
+                st.altair_chart(grafico_barras, use_container_width=True)
+                
+                # 5. TABELA ABC DE PRODUTOS
+                st.subheader("📦 Curva ABC de Produtos Mais Vendidos")
+                df_produtos = pd.DataFrame([{
+                    "Produto": v.nome_produto,
+                    "Qtd Vendida": v.quantidade_vendida,
+                    "Receita Gerada": v.valor_total_venda
+                } for v in vendas])
+                
+                df_agrupado = df_produtos.groupby("Produto").sum().reset_index()
+                df_agrupado = df_agrupado.sort_values(by="Receita Gerada", ascending=False)
+                
+                st.dataframe(
+                    df_agrupado.style.format({"Receita Gerada": "R$ {:.2f}", "Qtd Vendida": "{:.2f}"}),
+                    use_container_width=True,
+                    hide_index=True
+                )
+    
+    # ==========================================
+    # PÁGINA 2: LANÇAMENTOS (O restante do seu código continua normal abaixo)
     # ==========================================
     elif menu == "📝 Lançamentos":
         st.title("📝 Gestão do Inventário")
