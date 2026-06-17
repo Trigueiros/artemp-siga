@@ -16,7 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 # 1. CONFIGURAÇÃO INICIAL
-st.set_page_config(page_title="SIGA - Artemp", layout="wide")
+st.set_page_config(page_title="Orion Syst", layout="wide")
 
 engine = create_engine('sqlite:///artemp_siga.db', echo=False)
 Session = sessionmaker(bind=engine)
@@ -68,7 +68,7 @@ NOMES_MESES = [
 # TELA DE AUTENTICAÇÃO (SÓ APARECE SE NÃO ESTIVER LOGADO)
 # =====================================================================
 if not st.session_state.logado:
-    st.title("🔐 SIGA - Portal de Acesso Corporativo")
+    st.title("🌌 Orion Syst - Unified Process")
     aba_login, aba_cadastro = st.tabs(["🔑 Acessar Sistema", "📝 Criar Usuário Local"])
     
     with aba_login:
@@ -151,7 +151,7 @@ else:
     ano_atual = hoje.year
 
     # MENU LATERAL DE NAVEGAÇÃO
-    st.sidebar.title("🌱 SIGA - Artemp")
+    st.sidebar.title("🌌 Orion Syst")
     st.sidebar.write(f"👤 **Usuário:** {st.session_state.usuario_atual}")
     st.sidebar.caption(f"💼 **Perfil:** {st.session_state.cargo_atual}")
     
