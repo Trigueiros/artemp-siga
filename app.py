@@ -547,8 +547,11 @@ else:
                 with col_nf1:
                     nf_numero = st.text_input("Número da Nota Fiscal (NF-e):")
                     fornecedor_input = st.text_input("Fornecedor / Emitente:")
-                    qtd_recebida = st.number_input("Quantidade Recebida:", min_value=0.0, step=1.0)
-                    preco_unitario_input = st.number_input("Preço Unitário na NF (R$):", min_value=0.0, step=0.01)
+                    # Mudamos step para 0.1 para aceitar gramas/frações
+                    qtd_recebida = st.number_input("Quantidade indo pro Estoque (ex: 10 kg):", min_value=0.0, step=0.1) 
+                    
+                    # Substituímos o preço unitário pelo VALOR TOTAL
+                    valor_total_item = st.number_input("Valor TOTAL pago por essa quantidade na NF (R$):", min_value=0.0, step=0.01)
                     data_recebimento = st.date_input("Data de Entrada Física:", date.today())
                 
                 with col_nf2:
@@ -578,7 +581,11 @@ else:
                 btn_processar_nf = st.form_submit_button("⚙️ Processar Entrada Fiscal & Validar Critérios")
                 
                 if btn_processar_nf:
-                    if nf_numero and fornecedor_input and qtd_recebida > 0 and preco_unitario_input > 0:
+                    # Trocamos preco_unitario_input por valor_total_item na validação
+                    if nf_numero and fornecedor_input and qtd_recebida > 0 and valor_total_item > 0:
+                        
+                        # A MÁGICA ACONTECE AQUI: O sistema descobre sozinho o custo real do Quilo/Litro/Unidade
+                        custo_unitario_real = valor_total_item / qtd_recebida
                         
                         # CENÁRIO A: Produto já cadastrado
                         if tipo_entrada == "Sim, produto já cadastrado" and produto_selecionado:
@@ -586,13 +593,13 @@ else:
                             produto_bd = session.query(Estoque).filter_by(id=id_produto).first()
                             
                             if produto_bd:
-                                # Recálculo do Custo Médio Ponderado
+                                # Recálculo do Custo Médio Ponderado (Estoque antigo + Compra nova)
                                 valor_estoque_atual = produto_bd.quantidade * produto_bd.custo_medio
-                                valor_nova_nf = qtd_recebida * preco_unitario_input
                                 nova_qtd_total = produto_bd.quantidade + qtd_recebida
-                                novo_custo_medio = (valor_estoque_atual + valor_nova_nf) / nova_qtd_total
                                 
-                                # Atualiza dados mestres e critérios técnicos
+                                # Soma todo o dinheiro e divide por todo o peso
+                                novo_custo_medio = (valor_estoque_atual + valor_total_item) / nova_qtd_total
+                                
                                 produto_bd.quantidade = nova_qtd_total
                                 produto_bd.custo_medio = novo_custo_medio
                                 produto_bd.data_validade = validade_lote
@@ -601,44 +608,37 @@ else:
                                 nova_nota = EntradaNF(
                                     produto_id=produto_bd.id, numero_nf=nf_numero,
                                     fornecedor=fornecedor_input, quantidade_recebida=qtd_recebida,
-                                    preco_unitario=preco_unitario_input, data_recebimento=data_recebimento
+                                    preco_unitario=custo_unitario_real, # Salva o preço da fração
+                                    data_recebimento=data_recebimento
                                 )
                                 session.add(nova_nota)
                                 session.commit()
-                                st.success(f"Nota Fiscal {nf_numero} integrada ao estoque do material {produto_bd.nome_material}!")
+                                st.success(f"Nota Fiscal integrada! Novo custo médio: R$ {novo_custo_medio:.2f}/{produto_bd.unidade_medida}")
                                 st.rerun()
                         
                         # CENÁRIO B: Novo produto
                         elif tipo_entrada == "Não, é um produto novo" and nome_novo:
                             novo_produto = Estoque(
-                                nome_material=nome_novo, 
-                                categoria=cat_nova,
-                                quantidade=qtd_recebida, 
-                                unidade_medida=und_nova,
-                                custo_medio=preco_unitario_input,
-                                data_validade=validade_lote, 
-                                status_fispq=fispq_lote,
-                                fornecedor=fornecedor_input,  # <-- O VILÃO RESOLVIDO AQUI!
-                                nota_fiscal=nf_numero         # <-- Aproveitando a carona
+                                nome_material=nome_novo, categoria=cat_nova,
+                                quantidade=qtd_recebida, unidade_medida=und_nova,
+                                custo_medio=custo_unitario_real, # Salva direto o custo do Kg exato (ex: 22.24)
+                                data_validade=validade_lote, status_fispq=fispq_lote,
+                                fornecedor=fornecedor_input, nota_fiscal=nf_numero
                             )
                             session.add(novo_produto)
                             session.flush()
                             
                             nova_nota = EntradaNF(
-                                produto_id=novo_produto.id, 
-                                numero_nf=nf_numero,
-                                fornecedor=fornecedor_input, 
-                                quantidade_recebida=qtd_recebida,
-                                preco_unitario=preco_unitario_input, 
-                                data_recebimento=data_recebimento
-                            
+                                produto_id=novo_produto.id, numero_nf=nf_numero,
+                                fornecedor=fornecedor_input, quantidade_recebida=qtd_recebida,
+                                preco_unitario=custo_unitario_real, data_recebimento=data_recebimento
                             )
                             session.add(nova_nota)
                             session.commit()
-                            st.success(f"Novo item MAT-{novo_produto.id:04d} inserido no catálogo com validações ativas!")
+                            st.success(f"Material inserido! Custo real de R$ {custo_unitario_real:.2f} por {und_nova} calculado e gravado.")
                             st.rerun()
                     else:
-                        st.error("Preencha todos os campos do fluxo regulatório.")
+                        st.error("Preencha todos os campos corretamente (Quantidade e Valor Total devem ser maiores que zero).")
 
         # 3. ABAS DE VISUALIZAÇÃO GERAIS
         aba_saldo, aba_historico_nf = st.tabs(["📋 Posição de Saldos e Controle Técnico", "🧾 Histórico Financeiro de NFs"])
