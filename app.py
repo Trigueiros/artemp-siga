@@ -611,10 +611,15 @@ else:
                         # CENÁRIO B: Novo produto
                         elif tipo_entrada == "Não, é um produto novo" and nome_novo:
                             novo_produto = Estoque(
-                                nome_material=nome_novo, categoria=cat_nova,
-                                quantidade=qtd_recebida, unidade_medida=und_nova,
+                                nome_material=nome_novo, 
+                                categoria=cat_nova,
+                                quantidade=qtd_recebida, 
+                                unidade_medida=und_nova,
                                 custo_medio=preco_unitario_input,
-                                data_validade=validade_lote, status_fispq=fispq_lote
+                                data_validade=validade_lote, 
+                                status_fispq=fispq_lote,
+                                fornecedor=fornecedor_input,  # <-- O VILÃO RESOLVIDO AQUI!
+                                nota_fiscal=nf_numero         # <-- Aproveitando a carona
                             )
                             session.add(novo_produto)
                             session.flush()
