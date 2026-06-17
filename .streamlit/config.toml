@@ -1,0 +1,15 @@
+[theme]
+# Cor principal (Botões, barras de carregamento e destaques)
+primaryColor = "#1E90FF"
+
+# Cor do fundo principal da tela (Azul muito escuro/Noturno)
+backgroundColor = "#0B132B"
+
+# Cor do menu lateral e caixas de texto (Um azul um pouco mais claro que o fundo)
+secondaryBackgroundColor = "#1C2541"
+
+# Cor do texto principal (Branco gelo para dar contraste e não cansar a visão)
+textColor = "#F0F4F8"
+
+# Estilo da fonte
+font = "sans serif"
