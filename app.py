@@ -580,7 +580,7 @@ else:
     # PÁGINA 6: ALMOXARIFADO / ESTOQUE (SGI)
     # ==========================================
     elif menu == "📦 Almoxarifado / Estoque":
-        st.title("📦 Almoxarifado, Valoração & Controle de Conformidade Química")
+        st.title("📦 Almoxarifado, Controle de estoque")
         
         todos_produtos = session.query(Estoque).all()
         todas_nfs = session.query(EntradaNF).all()
