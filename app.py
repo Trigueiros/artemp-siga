@@ -4,8 +4,10 @@ import altair as alt
 import hashlib
 import json 
 import requests # <-- NOVA BIBLIOTECA AQUI
+from streamlit_lottie import st_lottie
 from datetime import date
 from sqlalchemy.orm import sessionmaker
+
 from sqlalchemy import create_engine
 # Importamos a nova tabela NaoConformidade do banco de dados
 from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda
@@ -65,68 +67,98 @@ NOMES_MESES = [
 ]
 
 # =====================================================================
+# FUNÇÃO PARA CARREGAR A ANIMAÇÃO
+# =====================================================================
+def carregar_lottie_url(url: str):
+    try:
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
+
+# Link da animação (pode ser trocado por outro do LottieFiles depois)
+animacao_orion = carregar_lottie_url("https://assets3.lottiefiles.com/packages/lf20_tno6cg2w.json")
+
+# =====================================================================
 # TELA DE AUTENTICAÇÃO (SÓ APARECE SE NÃO ESTIVER LOGADO)
 # =====================================================================
 if not st.session_state.logado:
-    st.title("🌌 Orion Syst - Unified Process")
-    aba_login, aba_cadastro = st.tabs(["🔑 Acessar Sistema", "📝 Criar Usuário Local"])
     
-    with aba_login:
-        with st.form("form_login"):
-            st.subheader("Login do Usuário")
-            user_input = st.text_input("Usuário (Username)")
-            senha_input = st.text_input("Senha", type="password")
-            btn_entrar = st.form_submit_button("Entrar no ERP")
+    # Criamos 3 colunas: as das pontas (1) empurram a do meio (1.5) para o centro exato
+    col_vazia_esq, col_centro, col_vazia_dir = st.columns([1, 1.5, 1])
+    
+    with col_vazia_esq:
+        # Coloca a animação para rodar na coluna da esquerda
+        if animacao_orion:
+            st_lottie(animacao_orion, height=350, key="anim_espaco")
             
-            if btn_entrar:
-                # 1. Limpeza rigorosa: remove espaços no início/fim e força minúsculas
-                usuario_limpo = user_input.strip().lower()
-                senha_limpa = senha_input.strip()
+    with col_centro:
+        # Usamos HTML básico para forçar o alinhamento do texto no centro
+        st.markdown("<h1 style='text-align: center;'>🌌 Orion Syst</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray; font-size: 1.2rem; margin-bottom: 2rem;'>Portal de Acesso Corporativo</p>", unsafe_allow_html=True)
+        
+        aba_login, aba_cadastro = st.tabs(["🔑 Acessar Sistema", "📝 Criar Usuário Local"])
+        
+        with aba_login:
+            with st.form("form_login"):
+                st.markdown("<h4 style='text-align: center;'>Login de Acesso</h4>", unsafe_allow_html=True)
+                user_input = st.text_input("Usuário (Username)")
+                senha_input = st.text_input("Senha", type="password")
                 
-                # 2. Criptografa a senha já limpa
-                hash_busca = criptografar_senha(senha_limpa)
+                st.write("") # Espaçamento
+                btn_entrar = st.form_submit_button("Entrar no ERP", use_container_width=True) # Botão ocupando a largura toda
                 
-                # 3. Faz a busca no banco usando os dados tratados
-                usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
-                
-                if usuario_encontrado:
-                    st.session_state.logado = True
-                    st.session_state.usuario_atual = usuario_encontrado.nome_completo
-                    st.session_state.cargo_atual = usuario_encontrado.cargo
-                    st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
+                if btn_entrar:
+                    # 1. Limpeza rigorosa: remove espaços no início/fim e força minúsculas
+                    usuario_limpo = user_input.strip().lower()
+                    senha_limpa = senha_input.strip()
                     
-                    st.success("Acesso autorizado! Bem-vindo.")
-                    st.rerun()
-                else:
-                    # Mensagem de erro mais descritiva para depuração
-                    st.error(f"Acesso negado para o usuário '{usuario_limpo}'. Verifique as credenciais.")
+                    # 2. Criptografa a senha já limpa
+                    hash_busca = criptografar_senha(senha_limpa)
                     
-    with aba_cadastro:
-        with st.form("form_cadastro_usuario"):
-            st.subheader("Registro de Novo Operador")
-            novo_nome = st.text_input("Nome Completo")
-            novo_username = st.text_input("Definir Nome de Usuário (Ex: j.silva)")
-            nova_senha = st.text_input("Definir Senha", type="password")
-            novo_cargo = st.selectbox("Cargo/Nível de Acesso:", ["Operador de Almoxarifado", "Supervisor de SGI", "Gerente de Operações","Técnico","Diretor","Assistente","Outros"])
-            btn_cadastrar = st.form_submit_button("Salvar no Sistema")
-            
-            if btn_cadastrar:
-                if novo_nome and novo_username and nova_senha:
-                    usuario_existe = session.query(Usuario).filter_by(username=novo_username).first()
-                    if usuario_existe:
-                        st.error("Este nome de usuário já está em uso.")
+                    # 3. Faz a busca no banco usando os dados tratados
+                    usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
+                    
+                    if usuario_encontrado:
+                        st.session_state.logado = True
+                        st.session_state.usuario_atual = usuario_encontrado.nome_completo
+                        st.session_state.cargo_atual = usuario_encontrado.cargo
+                        st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
+                        
+                        st.success("Acesso autorizado! Bem-vindo.")
+                        st.rerun()
                     else:
-                        hash_seguro = criptografar_senha(nova_senha)
-                        novo_usuario = Usuario(
-                            username=novo_username, senha_hash=hash_seguro,
-                            nome_completo=novo_nome, cargo=novo_cargo
-                        )
-                        session.add(novo_usuario)
-                        session.commit()
-                        st.success("Usuário cadastrado com sucesso! Faça login na primeira aba.")
-                else:
-                    st.error("Por favor, preencha todos os campos.")
-
+                        st.error(f"Acesso negado para o usuário '{usuario_limpo}'. Verifique as credenciais.")
+                        
+        with aba_cadastro:
+            with st.form("form_cadastro_usuario"):
+                st.markdown("<h4 style='text-align: center;'>Registro de Novo Operador</h4>", unsafe_allow_html=True)
+                novo_nome = st.text_input("Nome Completo")
+                novo_username = st.text_input("Definir Nome de Usuário (Ex: j.silva)")
+                nova_senha = st.text_input("Definir Senha", type="password")
+                novo_cargo = st.selectbox("Cargo/Nível de Acesso:", ["Operador de Almoxarifado", "Supervisor de SGI", "Gerente de Operações","Técnico","Diretor","Assistente","Outros"])
+                
+                st.write("") # Espaçamento
+                btn_cadastrar = st.form_submit_button("Salvar no Sistema", use_container_width=True)
+                
+                if btn_cadastrar:
+                    if novo_nome and novo_username and nova_senha:
+                        usuario_existe = session.query(Usuario).filter_by(username=novo_username).first()
+                        if usuario_existe:
+                            st.error("Este nome de usuário já está em uso.")
+                        else:
+                            hash_seguro = criptografar_senha(nova_senha)
+                            novo_usuario = Usuario(
+                                username=novo_username, senha_hash=hash_seguro,
+                                nome_completo=novo_nome, cargo=novo_cargo
+                            )
+                            session.add(novo_usuario)
+                            session.commit()
+                            st.success("Usuário cadastrado com sucesso! Faça login na primeira aba.")
+                    else:
+                        st.error("Por favor, preencha todos os campos.")
 # =====================================================================
 # SISTEMA PRINCIPAL (SÓ CARREGA SE O PORTEIRO LIBERAR)
 # =====================================================================
