@@ -3,7 +3,7 @@
 primaryColor = "#68a3d3"
 
 # Cor do fundo principal da tela (Azul muito escuro/Noturno)
-backgroundColor = "#083749"
+backgroundColor = "#102d3a"
 
 # Cor do menu lateral e caixas de texto (Um azul um pouco mais claro que o fundo)
 secondaryBackgroundColor = "#083749"
