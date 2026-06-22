@@ -3,13 +3,14 @@ import pandas as pd
 import altair as alt
 import hashlib
 import json 
-import requests # <-- NOVA BIBLIOTECA AQUI
+import requests 
+import time
 from streamlit_lottie import st_lottie
 from datetime import date
 from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy import create_engine
-# Importamos a nova tabela NaoConformidade do banco de dados
+# Importamos as tabelas do banco de dados
 from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda, FichaTecnica, IngredienteFicha
 
 # Importações para o Google Drive
@@ -24,12 +25,8 @@ engine = create_engine('sqlite:///artemp_siga.db', echo=False)
 Session = sessionmaker(bind=engine)
 session = Session()
 
-
-
-
 def criptografar_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
-
 
 # =====================================================================
 # GATILHO DE INICIALIZAÇÃO BLINDADO (Cria ou Força a Atualização)
@@ -108,29 +105,33 @@ if not st.session_state.logado:
                 senha_input = st.text_input("Senha", type="password")
                 
                 st.write("") # Espaçamento
-                btn_entrar = st.form_submit_button("Entrar no ERP", use_container_width=True) # Botão ocupando a largura toda
+                btn_entrar = st.form_submit_button("Entrar no ERP", use_container_width=True)
                 
                 if btn_entrar:
-                    # 1. Limpeza rigorosa: remove espaços no início/fim e força minúsculas
-                    usuario_limpo = user_input.strip().lower()
-                    senha_limpa = senha_input.strip()
-                    
-                    # 2. Criptografa a senha já limpa
-                    hash_busca = criptografar_senha(senha_limpa)
-                    
-                    # 3. Faz a busca no banco usando os dados tratados
-                    usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
-                    
-                    if usuario_encontrado:
-                        st.session_state.logado = True
-                        st.session_state.usuario_atual = usuario_encontrado.nome_completo
-                        st.session_state.cargo_atual = usuario_encontrado.cargo
-                        st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
+                    with st.spinner("🚀 Autenticando credenciais no Orion Syst..."):
+                        time.sleep(1.5) # Pausa tecnológica
                         
-                        st.success("Acesso autorizado! Bem-vindo.")
-                        st.rerun()
-                    else:
-                        st.error(f"Acesso negado para o usuário '{usuario_limpo}'. Verifique as credenciais.")
+                        # 1. Limpeza rigorosa
+                        usuario_limpo = user_input.strip().lower()
+                        senha_limpa = senha_input.strip()
+                        
+                        # 2. Criptografa a senha
+                        hash_busca = criptografar_senha(senha_limpa)
+                        
+                        # 3. Busca no banco
+                        usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
+                        
+                        if usuario_encontrado:
+                            st.session_state.logado = True
+                            st.session_state.usuario_atual = usuario_encontrado.nome_completo
+                            st.session_state.cargo_atual = usuario_encontrado.cargo
+                            st.session_state.modulos_acesso = usuario_encontrado.modulos_acesso
+                            
+                            st.success("Acesso autorizado! Bem-vindo.")
+                            time.sleep(1.0)
+                            st.rerun()
+                        else:
+                            st.error(f"Acesso negado para o usuário '{usuario_limpo}'. Verifique as credenciais.")
                         
         with aba_cadastro:
             with st.form("form_cadastro_usuario"):
@@ -160,9 +161,6 @@ if not st.session_state.logado:
                     else:
                         st.error("Por favor, preencha todos os campos.")
 
-                # ==========================================
-        # ABA 3: RECUPERAÇÃO DE SENHA
-        # ==========================================
         with aba_recuperacao:
             with st.form("form_recuperacao"):
                 st.markdown("<h4 style='text-align: center;'>Recuperação de Credenciais</h4>", unsafe_allow_html=True)
@@ -177,13 +175,9 @@ if not st.session_state.logado:
                 
                 if btn_recuperar:
                     if rec_user and rec_nome and rec_nova_senha:
-                        # 1. Limpa os espaços e busca o usuário no banco
                         usuario_alvo = session.query(Usuario).filter_by(username=rec_user.strip().lower()).first()
-                        
                         if usuario_alvo:
-                            # 2. Cruza o nome digitado com o nome do banco (ignorando maiúsculas e minúsculas para facilitar)
                             if usuario_alvo.nome_completo.strip().lower() == rec_nome.strip().lower():
-                                # 3. Se a identidade for confirmada, esmaga a senha velha com a nova criptografada
                                 usuario_alvo.senha_hash = criptografar_senha(rec_nova_senha.strip())
                                 session.commit()
                                 st.success("✅ Identidade confirmada e senha redefinida com sucesso! Volte à primeira aba para acessar.")
@@ -193,14 +187,28 @@ if not st.session_state.logado:
                             st.error("❌ Usuário não localizado no banco de dados da Orion Syst.")
                     else:
                         st.warning("⚠️ Preencha todos os campos do formulário de validação.")
+
 # =====================================================================
 # SISTEMA PRINCIPAL (SÓ CARREGA SE O PORTEIRO LIBERAR)
 # =====================================================================
 else:
+    # --- ANIMAÇÃO DE ENTRADA SUAVE (FADE-IN) ---
+    st.markdown("""
+        <style>
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(15px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .block-container {
+            animation: fadeIn 0.8s ease-out;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # BUSCA DOS DADOS GERAIS
     todos_residuos = session.query(Residuo).all()
     todas_licencas = session.query(Licenca).all()
-    todas_ncs = session.query(NaoConformidade).all() # Nova busca de NCs
+    todas_ncs = session.query(NaoConformidade).all() 
 
     if todos_residuos:
         df = pd.DataFrame([{
@@ -228,8 +236,7 @@ else:
         st.rerun()
         
     st.sidebar.markdown("---")
-    # Adicionada a nova aba "⚠️ Não Conformidades" no menu
-    # --- NOVO MENU DINÂMICO ---
+
     TODOS_MODULOS = [
         "📊 Dashboard", 
         "📝 Lançamentos", 
@@ -243,34 +250,23 @@ else:
         "⚙️ Painel Admin"
     ]
 
-    # Verifica o que o usuário pode ver baseado na memória do login
     if st.session_state.cargo_atual == "Super Admin" or st.session_state.modulos_acesso == "TODOS":
         modulos_permitidos = TODOS_MODULOS
     else:
-        # Pega o texto do banco (ex: "📊 Dashboard,🏭 Produção (MRP)") e quebra em uma lista
         modulos_permitidos = st.session_state.modulos_acesso.split(",")
-        
-        # Trava de segurança caso a lista venha vazia
         if not modulos_permitidos or modulos_permitidos == [""]:
             modulos_permitidos = ["📊 Dashboard"]
 
     menu = st.sidebar.radio("Navegação:", modulos_permitidos)
 
     # ==========================================
-    # PÁGINA 1: DASHBOARD
-    # ==========================================
-    # ==========================================
     # PÁGINA 1: DASHBOARD (HÍBRIDO)
     # ==========================================
     if menu == "📊 Dashboard":
         st.title("📊 Painel de Controle e Inteligência")
         
-        # Separando os mundos: Artemp (SGI) vs Financeiro (Contabilidade Social)
         aba_ambiental, aba_financeira = st.tabs(["🌱 Indicadores Ambientais (SGI)", "💰 Inteligência Financeira (DRE)"])
         
-        # ---------------------------------------------------------
-        # ABA 1: O SEU CÓDIGO AMBIENTAL ORIGINAL (MANTIDO INTACTO)
-        # ---------------------------------------------------------
         with aba_ambiental:
             st.write("### 🔍 Filtrar Período de Consulta")
             col_filtro1, col_filtro2 = st.columns(2)
@@ -314,26 +310,18 @@ else:
                 )
                 st.altair_chart(grafico, use_container_width=True)
 
-        # ---------------------------------------------------------
-        # ABA 2: O NOVO DASHBOARD FINANCEIRO E DRE
-        # ---------------------------------------------------------
         with aba_financeira:
             st.write("### Visão Geral de Resultados e Margens")
-
-            # Busca todas as vendas registradas no banco para compor a DRE
             vendas = session.query(Venda).all()
             
             if not vendas:
                 st.info("O painel será alimentado automaticamente assim que a primeira venda for registrada no módulo Comercial.")
             else:
-                # 1. CÁLCULO DOS INDICADORES ECONÔMICOS
                 receita_bruta = sum(v.valor_total_venda for v in vendas)
                 custo_cmv = sum(v.custo_total_produto for v in vendas)
                 lucro_bruto = receita_bruta - custo_cmv
-                
                 margem_lucro = (lucro_bruto / receita_bruta * 100) if receita_bruta > 0 else 0
 
-                # 2. EXIBIÇÃO DA DRE SIMPLIFICADA
                 st.subheader("DRE Simplificada (Acumulada)")
                 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
                 
@@ -343,8 +331,6 @@ else:
                 col_f4.metric("Margem Bruta", f"{margem_lucro:.1f} %")
 
                 st.divider()
-
-                # 3. PREPARAÇÃO DOS DADOS PARA O GRÁFICO (Receita vs Custo)
                 st.subheader("📈 Faturamento vs Custos por Pedido")
                 
                 df_grafico = pd.DataFrame([{
@@ -361,7 +347,6 @@ else:
                     value_name="Valor"
                 )
 
-                # 4. GRÁFICO ALTAIR
                 grafico_barras = alt.Chart(df_melted).mark_bar().encode(
                     x=alt.X('ID da Venda:N', title='Histórico de Pedidos', sort=None),
                     y=alt.Y('Valor:Q', title='Valores (R$)'),
@@ -371,7 +356,6 @@ else:
 
                 st.altair_chart(grafico_barras, use_container_width=True)
                 
-                # 5. TABELA ABC DE PRODUTOS
                 st.subheader("📦 Curva ABC de Produtos Mais Vendidos")
                 df_produtos = pd.DataFrame([{
                     "Produto": v.nome_produto,
@@ -389,7 +373,7 @@ else:
                 )
     
     # ==========================================
-    # PÁGINA 2: LANÇAMENTOS (O restante do seu código continua normal abaixo)
+    # PÁGINA 2: LANÇAMENTOS 
     # ==========================================
     elif menu == "📝 Lançamentos":
         st.title("📝 Gestão do Inventário")
@@ -510,7 +494,7 @@ else:
                         except Exception as e: st.error(f"Erro ao enviar para o Drive: {e}")
                 else: st.error("Por favor, anexe um documento.")
 
-  # ==========================================
+    # ==========================================
     # PÁGINA 5: NÃO CONFORMIDADES (COM PARETO)
     # ==========================================
     elif menu == "⚠️ Não Conformidades":
@@ -560,18 +544,15 @@ else:
             # 2. DASHBOARD DE INTELIGÊNCIA DE QUALIDADE (PARETO)
             st.write("### 📊 Análise de Pareto (Desvios por Setor)")
             
-            # Converte os dados do banco para um DataFrame Pandas
             df_ncs = pd.DataFrame([{
                 "Setor": n.setor_origem,
                 "Gravidade": n.gravidade,
                 "Status": n.status
             } for n in todas_ncs])
             
-            # Conta a frequência de RNCs por setor e ordena do maior para o menor
             pareto_df = df_ncs.groupby("Setor").size().reset_index(name='Frequência')
             pareto_df = pareto_df.sort_values(by='Frequência', ascending=False)
             
-            # Cria o gráfico de barras ordenado usando Altair
             grafico_pareto = alt.Chart(pareto_df).mark_bar(color='#1f77b4').encode(
                 x=alt.X("Setor:N", sort='-y', title="Setor de Origem"),
                 y=alt.Y("Frequência:Q", title="Número de Não Conformidades"),
@@ -595,7 +576,6 @@ else:
                 "Status": n.status
             } for n in todas_ncs])
             
-            # Aplica formatação de cores na tabela para a Gravidade
             def colorir_gravidade(val):
                 color = '#ff4b4b' if val == 'Crítica' else '#ffa500' if val == 'Moderada' else '#00cc66'
                 return f'color: {color}; font-weight: bold'
@@ -642,7 +622,7 @@ else:
         else:
             st.info("Nenhuma Não Conformidade registrada no momento.")
 
-# ==========================================
+    # ==========================================
     # PÁGINA 6: ALMOXARIFADO / ESTOQUE (SGI)
     # ==========================================
     elif menu == "📦 Almoxarifado / Estoque":
@@ -659,20 +639,16 @@ else:
         if todos_produtos:
             for p in todos_produtos:
                 total_patrimonio += (p.quantidade * p.custo_medio)
-                # Verifica criticidade de validade para Insumos Químicos ou EPIs
                 if p.data_validade and p.data_validade < hoje and p.quantidade > 0:
                     itens_vencidos.append(p)
-                # Verifica documentação de segurança exigida por norma
                 if p.categoria == "Insumos Químicos" and p.status_fispq in ["Pendente", "Desatualizada"]:
                     fispq_pendentes.append(p)
         
-        # KPIs de Controle Financeiro e de Risco
         col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
         col_kpi1.metric(label="💰 Capital Imobilizado", value=f"R$ {total_patrimonio:,.2f}")
         col_kpi2.metric(label="🚨 Produtos Vencidos em Estoque", value=str(len(itens_vencidos)))
         col_kpi3.metric(label="📄 Alertas de FISPQ/FDS Pendentes", value=str(len(fispq_pendentes)))
         
-        # Exibição visual dos alertas do SGI
         if itens_vencidos:
             for item in itens_vencidos:
                 st.error(f"🚨 **PRODUTO VENCIDO EM ESTOQUE:** O item **MAT-{item.id:04d} | {item.nome_material}** está com o prazo de validade expirado desde {item.data_validade.strftime('%d/%m/%Y')}. Bloqueie o uso operacional imediato!")
@@ -683,7 +659,7 @@ else:
         
         st.divider()
         
-        # 2. FORMULÁRIO DE RECEBIMENTO DE NOTA FISCAL COM CRITÉRIOS DE QUALIDADE
+        # 2. FORMULÁRIO DE RECEBIMENTO DE NOTA FISCAL
         with st.expander("🧾 Registrar Entrada de Nota Fiscal (Recebimento)", expanded=False):
             tipo_entrada = st.radio(
                 "O material desta Nota Fiscal já possui cadastro no estoque?", 
@@ -697,10 +673,7 @@ else:
                 with col_nf1:
                     nf_numero = st.text_input("Número da Nota Fiscal (NF-e):")
                     fornecedor_input = st.text_input("Fornecedor / Emitente:")
-                    # Mudamos step para 0.1 para aceitar gramas/frações
                     qtd_recebida = st.number_input("Quantidade indo pro Estoque (ex: 10 kg):", min_value=0.0, step=0.1) 
-                    
-                    # Substituímos o preço unitário pelo VALOR TOTAL
                     valor_total_item = st.number_input("Valor TOTAL pago por essa quantidade na NF (R$):", min_value=0.0, step=0.01)
                     data_recebimento = st.date_input("Data de Entrada Física:", date.today())
                 
@@ -715,7 +688,6 @@ else:
                             st.warning("Nenhum produto cadastrado ainda. Mude para 'Produto Novo'.")
                             produto_selecionado = None
                         
-                        # Campos para atualizar lote corrente na entrada
                         validade_lote = st.date_input("Atualizar Validade deste lote (Opcional):", date.today() + pd.Timedelta(days=365))
                         fispq_lote = st.selectbox("Atualizar Status FISPQ/FDS:", ["Não se aplica", "Regular", "Pendente", "Desatualizada"])
                     else:
@@ -723,7 +695,6 @@ else:
                         cat_nova = st.selectbox("Categoria:", ["EPI (Equip. Proteção)", "Insumos Químicos", "Ferramentas", "Peças de Reposição", "Outros"])
                         und_nova = st.selectbox("Unidade de Medida:", ["Unidade (un)", "Quilograma (kg)", "Litro (L)", "Caixa (cx)"])
                         
-                        # Parâmetros de conformidade obrigatórios para novos cadastros
                         validade_lote = st.date_input("Data de Validade do Produto:", date.today() + pd.Timedelta(days=365))
                         fispq_lote = st.selectbox("Status inicial da FISPQ/FDS:", ["Não se aplica", "Regular", "Pendente", "Desatualizada"])
                         produto_selecionado = None
@@ -731,23 +702,16 @@ else:
                 btn_processar_nf = st.form_submit_button("⚙️ Processar Entrada Fiscal & Validar Critérios")
                 
                 if btn_processar_nf:
-                    # Trocamos preco_unitario_input por valor_total_item na validação
                     if nf_numero and fornecedor_input and qtd_recebida > 0 and valor_total_item > 0:
-                        
-                        # A MÁGICA ACONTECE AQUI: O sistema descobre sozinho o custo real do Quilo/Litro/Unidade
                         custo_unitario_real = valor_total_item / qtd_recebida
                         
-                        # CENÁRIO A: Produto já cadastrado
                         if tipo_entrada == "Sim, produto já cadastrado" and produto_selecionado:
                             id_produto = int(produto_selecionado.split("|")[0].split("-")[1])
                             produto_bd = session.query(Estoque).filter_by(id=id_produto).first()
                             
                             if produto_bd:
-                                # Recálculo do Custo Médio Ponderado (Estoque antigo + Compra nova)
                                 valor_estoque_atual = produto_bd.quantidade * produto_bd.custo_medio
                                 nova_qtd_total = produto_bd.quantidade + qtd_recebida
-                                
-                                # Soma todo o dinheiro e divide por todo o peso
                                 novo_custo_medio = (valor_estoque_atual + valor_total_item) / nova_qtd_total
                                 
                                 produto_bd.quantidade = nova_qtd_total
@@ -758,7 +722,7 @@ else:
                                 nova_nota = EntradaNF(
                                     produto_id=produto_bd.id, numero_nf=nf_numero,
                                     fornecedor=fornecedor_input, quantidade_recebida=qtd_recebida,
-                                    preco_unitario=custo_unitario_real, # Salva o preço da fração
+                                    preco_unitario=custo_unitario_real,
                                     data_recebimento=data_recebimento
                                 )
                                 session.add(nova_nota)
@@ -766,12 +730,11 @@ else:
                                 st.success(f"Nota Fiscal integrada! Novo custo médio: R$ {novo_custo_medio:.2f}/{produto_bd.unidade_medida}")
                                 st.rerun()
                         
-                        # CENÁRIO B: Novo produto
                         elif tipo_entrada == "Não, é um produto novo" and nome_novo:
                             novo_produto = Estoque(
                                 nome_material=nome_novo, categoria=cat_nova,
                                 quantidade=qtd_recebida, unidade_medida=und_nova,
-                                custo_medio=custo_unitario_real, # Salva direto o custo do Kg exato (ex: 22.24)
+                                custo_medio=custo_unitario_real,
                                 data_validade=validade_lote, status_fispq=fispq_lote,
                                 fornecedor=fornecedor_input, nota_fiscal=nf_numero
                             )
@@ -808,7 +771,6 @@ else:
                 } for p in todos_produtos])
                 st.dataframe(df_saldo, use_container_width=True, hide_index=True)
                 
-                # Consumo / Baixa de estoque
                 st.divider()
                 st.write("#### 🔴 Registrar Saída de Material (Uso Interno)")
                 lista_baixa = [f"MAT-{p.id:04d} | {p.nome_material}" for p in todos_produtos]
@@ -850,13 +812,12 @@ else:
             else:
                 st.info("Nenhum registro documental processado.")
 
-# ==========================================
-    # PÁGINA 7: KANBAN DE TAREFAS (VERSÃO FINAL)
+    # ==========================================
+    # PÁGINA 7: KANBAN DE TAREFAS
     # ==========================================
     elif menu == "📋 Kanban de Tarefas":
         st.title("📋 Kanban - Gestão Ágil de Tarefas e Prazos")
         
-        # 1. FORMULÁRIO DE NOVA TAREFA
         with st.expander("➕ Criar Nova Tarefa", expanded=False):
             with st.form("form_nova_tarefa"):
                 t_titulo = st.text_input("Título da Tarefa:")
@@ -884,8 +845,6 @@ else:
         st.divider()
 
         todas_tarefas = session.query(TarefaKanban).all()
-        
-        # 2. QUADRO KANBAN VISUAL (3 COLUNAS)
         col_todo, col_doing, col_done = st.columns(3)
         
         with col_todo:
@@ -897,9 +856,7 @@ else:
                     if t.descricao: st.caption(t.descricao)
                     st.write(f"👤 {t.responsavel}")
                     st.write(f"📅 Prazo: {t.prazo.strftime('%d/%m/%Y')}")
-                    
                     if t.prazo < hoje: st.error("⚠️ Atrasado!")
-                    
                     if st.button("▶️ Iniciar", key=f"start_{t.id}", use_container_width=True):
                         t.status = "Em Andamento"
                         session.commit()
@@ -914,9 +871,7 @@ else:
                     if t.descricao: st.caption(t.descricao)
                     st.write(f"👤 {t.responsavel}")
                     st.write(f"📅 Prazo: {t.prazo.strftime('%d/%m/%Y')}")
-                    
                     if t.prazo < hoje: st.error("⚠️ Atrasado!")
-                    
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
                         if st.button("⏪ Voltar", key=f"back_{t.id}", use_container_width=True):
@@ -937,7 +892,6 @@ else:
                     st.write(f"~~**{t.titulo}**~~")
                     st.write(f"👤 {t.responsavel}")
                     st.success("Finalizada")
-                    
                     col_done_btn1, col_done_btn2 = st.columns(2)
                     with col_done_btn1:
                         if st.button("⏪ Voltar", key=f"revert_{t.id}", use_container_width=True):
@@ -952,26 +906,19 @@ else:
                             
         st.divider()
         
-        # 3. NOVA FUNCIONALIDADE: EDITAR PRAZO DE TAREFAS ATIVAS
         tarefas_ativas = [t for t in todas_tarefas if t.status in ["A Fazer", "Em Andamento"]]
-        
         if tarefas_ativas:
             with st.expander("⚙️ Prorrogar / Ajustar Prazo de Tarefa Ativa", expanded=False):
                 col_ed1, col_ed2 = st.columns([2, 1])
-                
                 with col_ed1:
-                    # Monta a lista de seleção apenas com tarefas que ainda não foram concluídas
                     opcoes_ativas = [f"ID {t.id} | {t.titulo} (Responsável: {t.responsavel})" for t in tarefas_ativas]
                     tarefa_sel_texto = st.selectbox("Selecione a tarefa que ganhou flexibilidade de tempo:", opcoes_ativas, key="sel_ed_prazo")
                     id_ed = int(tarefa_sel_texto.split("|")[0].replace("ID ", "").strip())
                 
                 tarefa_ed_bd = session.query(TarefaKanban).filter_by(id=id_ed).first()
-                
                 if tarefa_ed_bd:
                     with col_ed2:
-                        # Mostra um seletor de data pré-preenchido com o prazo atual da tarefa
                         novo_prazo = st.date_input("Definir Nova Data Limite:", value=tarefa_ed_bd.prazo, key=f"date_ed_{id_ed}")
-                    
                     if st.button("💾 Salvar Alteração de Cronograma", use_container_width=True, key=f"btn_ed_{id_ed}"):
                         tarefa_ed_bd.prazo = novo_prazo
                         session.commit()
@@ -980,19 +927,14 @@ else:
         
         st.divider()
         
-        # 4. HISTÓRICO DE TAREFAS ARQUIVADAS
         with st.expander("🗄️ Consultar Arquivo Morto (Histórico de Tarefas)", expanded=False):
             tarefas_arquivadas = [t for t in todas_tarefas if t.status == "Arquivada"]
-            
             if tarefas_arquivadas:
                 df_arq = pd.DataFrame([{
-                    "ID": t.id,
-                    "Título da Tarefa": t.titulo,
-                    "Responsável": t.responsavel,
+                    "ID": t.id, "Título da Tarefa": t.titulo, "Responsável": t.responsavel,
                     "Prazo Original": t.prazo.strftime('%d/%m/%Y'),
                     "Data Criação": t.data_criacao.strftime('%d/%m/%Y') if t.data_criacao else "N/D"
                 } for t in tarefas_arquivadas])
-                
                 st.dataframe(df_arq, use_container_width=True, hide_index=True)
                 
                 st.write("#### 🔧 Gerenciar Arquivo")
@@ -1022,7 +964,7 @@ else:
             else:
                 st.info("O arquivo morto está vazio. Nenhuma tarefa foi arquivada no momento.")
 
-# ==========================================
+    # ==========================================
     # PÁGINA 8: PRODUÇÃO (MRP) E PRODUTOS ACABADOS
     # ==========================================
     elif menu == "🏭 Produção (MRP)":
@@ -1032,10 +974,7 @@ else:
         
         # --- ABA 1: ORDENS DE PRODUÇÃO ---
         with tab_op:
-            # 1. Abertura de OP
             with st.expander("➕ Abrir Nova Ordem de Produção (OP)", expanded=False):
-                
-                # Lógica de rastreio automático: busca a última OP registrada para gerar a próxima
                 ultima_op = session.query(OrdemProducao).order_by(OrdemProducao.id.desc()).first()
                 proximo_numero = ultima_op.id + 1 if ultima_op else 1
                 codigo_gerado = f"OP-{proximo_numero:03d}"
@@ -1043,7 +982,6 @@ else:
                 with st.form("form_nova_op"):
                     col_op1, col_op2 = st.columns(2)
                     with col_op1:
-                        # Campo bloqueado (disabled=True) para evitar erro humano
                         st.text_input("Código da OP (Gerado Automaticamente):", value=codigo_gerado, disabled=True)
                         nome_prod = st.text_input("Nome do Produto a ser Fabricado:")
                     with col_op2:
@@ -1051,7 +989,6 @@ else:
                     
                     if st.form_submit_button("Abrir OP"):
                         if nome_prod:
-                            # O sistema salva usando a variável codigo_gerado que ele mesmo criou
                             nova_op = OrdemProducao(codigo_op=codigo_gerado, nome_produto=nome_prod, quantidade_esperada=qtd_esperada)
                             session.add(nova_op)
                             session.commit()
@@ -1062,21 +999,15 @@ else:
             
             st.divider()
             
-            
-           # 2. Requisição de Materiais e Apontamento
             ops_abertas = session.query(OrdemProducao).filter_by(status="Aberta").all()
             if ops_abertas:
                 st.subheader("⚙️ Requisição de Materiais para Produção")
-                
                 with st.container(border=True):
-                    # Aqui nascem as colunas que estavam faltando!
                     col_req1, col_req2 = st.columns([1, 2])
-                    
                     with col_req1:
                         op_selecionada = st.selectbox("Selecione a OP Aberta:", [f"{op.id} | {op.codigo_op} - {op.nome_produto}" for op in ops_abertas])
                         id_op = int(op_selecionada.split(" | ")[0])
                         op_atual = session.query(OrdemProducao).filter_by(id=id_op).first()
-                    
                     with col_req2:
                         todos_insumos = session.query(Estoque).all()
                         insumo_sel = st.selectbox(
@@ -1086,17 +1017,12 @@ else:
                         id_insumo = int(insumo_sel.split(" | ")[0])
                         insumo_atual = session.query(Estoque).filter_by(id=id_insumo).first()
                     
-                    # Alinhamento recuado para fora das colunas
                     qtd_requisitar = st.number_input(f"Quantidade a transferir para a OP ({insumo_atual.unidade_medida}):", min_value=0.01, max_value=float(insumo_atual.quantidade), format="%.2f")
                     
                     if st.button("🔽 Baixar Insumo para Produção", type="primary", use_container_width=True):
-                        # Calcula o custo da matéria prima baseada no custo médio atual do almoxarifado
                         custo_consumo = qtd_requisitar * insumo_atual.custo_medio
-                        
-                        # 1. Dá baixa física no Almoxarifado Geral
                         insumo_atual.quantidade -= qtd_requisitar
                         
-                        # 2. Registra o consumo rastreável na OP
                         novo_consumo = ConsumoOP(
                             op_id=op_atual.id, 
                             material_id=insumo_atual.id, 
@@ -1104,39 +1030,26 @@ else:
                             custo_alocado=custo_consumo
                         )
                         session.add(novo_consumo)
-                        
-                        # 3. Atualiza o custo financeiro total da OP
                         op_atual.custo_total += custo_consumo
-                        
                         session.commit()
                         st.success(f"Insumo baixado! R$ {custo_consumo:.2f} agregados ao custo da OP.")
                         st.rerun()
 
                 st.divider()
-            st.divider()
+                st.subheader("✅ Encerramento de Ordem de Produção")
+                opcoes_encerramento = [f"{op.id} | {op.codigo_op} - {op.nome_produto} (Custo Atual: R$ {op.custo_total:.2f})" for op in ops_abertas]
+                op_encerrar_str = st.selectbox("Selecione a OP para Finalizar e gerar Produto Acabado:", opcoes_encerramento)
                 
-                # 3. Fechamento da OP
-            st.subheader("✅ Encerramento de Ordem de Produção")
-                
-            opcoes_encerramento = [f"{op.id} | {op.codigo_op} - {op.nome_produto} (Custo Atual: R$ {op.custo_total:.2f})" for op in ops_abertas]
-            op_encerrar_str = st.selectbox("Selecione a OP para Finalizar e gerar Produto Acabado:", opcoes_encerramento)
-                
-                # O ESCUDO: Só executa se o Streamlit realmente carregou um texto na caixa de seleção
-            if op_encerrar_str:
+                if op_encerrar_str:
                     id_op_encerrar = int(op_encerrar_str.split(" | ")[0])
                     op_encerrar = session.query(OrdemProducao).filter_by(id=id_op_encerrar).first()
-                    
                     qtd_produzida_real = st.number_input("Quantidade Real Produzida:", value=float(op_encerrar.quantidade_esperada), format="%.2f")
                     
                     if st.button("🔒 Finalizar OP e Transferir para Estoque Acabado", use_container_width=True):
-                        # Calcula o Custo Unitário Final do produto gerado
                         custo_unit_final = op_encerrar.custo_total / qtd_produzida_real if qtd_produzida_real > 0 else 0
-                        
-                        # Procura se o Produto Acabado já existe no estoque isolado
                         produto_existente = session.query(ProdutoAcabado).filter_by(descricao=op_encerrar.nome_produto).first()
                         
                         if produto_existente:
-                            # Se já existe, atualiza a quantidade e faz o custo médio ponderado
                             valor_total_antigo = produto_existente.quantidade * produto_existente.custo_unitario
                             novo_valor_total = valor_total_antigo + op_encerrar.custo_total
                             produto_existente.quantidade += qtd_produzida_real
@@ -1144,7 +1057,6 @@ else:
                             produto_existente.valor_total = novo_valor_total
                             produto_existente.data_ultima_entrada = date.today()
                         else:
-                            # Se não existe, cria um registro novo no inventário de acabados
                             novo_produto = ProdutoAcabado(
                                 codigo=op_encerrar.codigo_op, 
                                 descricao=op_encerrar.nome_produto, 
@@ -1154,10 +1066,8 @@ else:
                             )
                             session.add(novo_produto)
                         
-                        # Muda o status da OP para não aparecer mais
                         op_encerrar.status = "Concluída"
                         op_encerrar.data_conclusao = date.today()
-                        
                         session.commit()
                         st.success(f"OP Finalizada! O item '{op_encerrar.nome_produto}' já está no Inventário de Produtos Acabados.")
                         st.rerun()
@@ -1167,12 +1077,10 @@ else:
         # --- ABA 2: INVENTÁRIO DE PRODUTOS ACABADOS ---
         with tab_estoque_final:
             st.subheader("📦 Galpão de Produtos Acabados (Finalizados)")
-            
             produtos_acabados = session.query(ProdutoAcabado).all()
             
             if produtos_acabados:
                 capital_final_imobilizado = sum([p.valor_total for p in produtos_acabados])
-                
                 st.metric("Capital Imobilizado (Produtos Prontos para Venda/Uso)", f"R$ {capital_final_imobilizado:.2f}")
                 
                 df_acabados = pd.DataFrame([{
@@ -1183,7 +1091,6 @@ else:
                     "Valor Imobilizado": f"R$ {p.valor_total:.2f}",
                     "Última Produção": p.data_ultima_entrada.strftime('%d/%m/%Y')
                 } for p in produtos_acabados])
-                
                 st.dataframe(df_acabados, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhum produto acabado consta no inventário separado.")
@@ -1192,7 +1099,6 @@ else:
         with tab_ficha:
             st.subheader("📝 Engenharia de Produto: Custeio e Ficha Técnica")
             
-            # 1. CRIAR A "CAPA" DA RECEITA
             with st.expander("➕ Criar Nova Ficha Técnica (Receita)", expanded=False):
                 with st.form("form_nova_ficha"):
                     col_r1, col_r2 = st.columns(2)
@@ -1218,8 +1124,6 @@ else:
 
             if todas_fichas and todos_insumos:
                 col_add1, col_add2 = st.columns([1.2, 2])
-
-                # 2. VINCULAR INGREDIENTES DO ALMOXARIFADO
                 with col_add1:
                     st.write("#### 🛒 Compor Ingredientes")
                     with st.form("form_add_ingrediente"):
@@ -1230,33 +1134,26 @@ else:
                         if st.form_submit_button("➕ Adicionar à Ficha", type="primary", use_container_width=True):
                             id_f = int(ficha_sel.split(" | ")[0])
                             id_i = int(insumo_sel.split(" | ")[0])
-
                             novo_ingrediente = IngredienteFicha(ficha_id=id_f, insumo_id=id_i, quantidade_usada=qtd_usada)
                             session.add(novo_ingrediente)
                             session.commit()
                             st.success("Ingrediente vinculado com sucesso!")
                             st.rerun()
 
-                # 3. VISÃO DO CUSTO MATEMÁTICO REAL (CMV TEÓRICO)
                 with col_add2:
                     st.write("#### 📊 Simulador de Custo Real (CMV)")
                     ficha_view_str = st.selectbox("Analisar a Ficha Técnica de:", [f"{f.id} | {f.nome_receita}" for f in todas_fichas], key="view_ficha")
                     id_view = int(ficha_view_str.split(" | ")[0])
                     ficha_view = session.query(FichaTecnica).filter_by(id=id_view).first()
-
                     ingredientes_desta_ficha = session.query(IngredienteFicha).filter_by(ficha_id=id_view).all()
 
                     if ingredientes_desta_ficha:
                         custo_total_receita = 0
                         dados_tabela = []
-
                         for ing in ingredientes_desta_ficha:
                             insumo_banco = session.query(Estoque).filter_by(id=ing.insumo_id).first()
-                            
-                            # A mágica do cruzamento de dados: Custo do Almoxarifado x Qtd da Receita
                             custo_parcial = ing.quantidade_usada * insumo_banco.custo_medio
                             custo_total_receita += custo_parcial
-
                             dados_tabela.append({
                                 "Insumo": insumo_banco.nome_material,
                                 "Qtd na Receita": f"{ing.quantidade_usada:.3f}",
@@ -1264,10 +1161,7 @@ else:
                                 "Impacto no Custo": f"R$ {custo_parcial:.2f}"
                             })
 
-                        # Calcula o custo de 1 única trufa baseado no rendimento da receita
                         custo_por_unidade = custo_total_receita / ficha_view.rendimento
-
-                        # Exibe os indicadores financeiros
                         col_c1, col_c2 = st.columns(2)
                         with col_c1:
                             st.metric(label=f"Custo Total da Massa/Lote", value=f"R$ {custo_total_receita:.2f}")
@@ -1280,25 +1174,19 @@ else:
             else:
                 st.warning("Para compor uma Ficha Técnica, você precisa primeiro ter Insumos cadastrados no Almoxarifado e criar uma Ficha Base no botão acima.")
 
-# ==========================================
+    # ==========================================
     # PÁGINA 9: COMERCIAL E FATURAMENTO
     # ==========================================
     elif menu == "💰 Comercial / Vendas":
         st.title("💰 Gestão Comercial e Faturamento")
-        
-        # Adicionada a nova aba fiscal
         tab_venda, tab_relatorio, tab_fiscal = st.tabs(["🛒 Registrar Novo Pedido", "📈 Relatório de Faturamento", "🧾 Painel Fiscal (NF-e/NFC-e)"])
         
-        # --- ABA 1: REGISTRAR VENDA ---
         with tab_venda:
             produtos_disponiveis = session.query(ProdutoAcabado).filter(ProdutoAcabado.quantidade > 0).all()
-            
             if produtos_disponiveis:
                 with st.container(border=True):
                     st.subheader("Emitir Pedido de Venda")
-                    
                     col_v1, col_v2 = st.columns([2, 1])
-                    
                     with col_v1:
                         produto_sel = st.selectbox(
                             "Selecione o Produto Acabado:", 
@@ -1306,9 +1194,7 @@ else:
                         )
                         id_produto = int(produto_sel.split(" | ")[0])
                         produto_atual = session.query(ProdutoAcabado).filter_by(id=id_produto).first()
-                        
                         cliente_input = st.text_input("Nome do Cliente / Empresa:")
-                    
                     with col_v2:
                         qtd_venda = st.number_input("Quantidade a Vender:", min_value=0.01, max_value=float(produto_atual.quantidade), format="%.2f")
                         preco_venda = st.number_input("Preço de Venda (Por Unidade):", min_value=0.01, value=float(produto_atual.custo_unitario * 1.5), format="%.2f")
@@ -1329,11 +1215,10 @@ else:
                                 preco_unitario_venda=preco_venda,
                                 valor_total_venda=receita_total,
                                 custo_total_produto=custo_total_venda,
-                                status_fiscal="Pendente" # Nasce pendente de emissão
+                                status_fiscal="Pendente" 
                             )
                             session.add(nova_venda)
                             session.commit()
-                            
                             st.success(f"Venda registrada! O pedido foi enviado para o Painel Fiscal para emissão da nota.")
                             st.rerun()
                         else:
@@ -1341,10 +1226,8 @@ else:
             else:
                 st.info("Não há Produtos Acabados em estoque para venda.")
 
-        # --- ABA 2: RELATÓRIO DE FATURAMENTO ---
         with tab_relatorio:
             todas_vendas = session.query(Venda).order_by(Venda.data_venda.desc()).all()
-            
             if todas_vendas:
                 faturamento_total = sum([v.valor_total_venda for v in todas_vendas])
                 custo_total_cmv = sum([v.custo_total_produto for v in todas_vendas])
@@ -1356,116 +1239,75 @@ else:
                 col_kpi3.metric("Lucro Bruto", f"R$ {lucro_total:.2f}")
                 
                 st.divider()
-                
                 df_vendas = pd.DataFrame([{
-                    "ID": v.id,
-                    "Data": v.data_venda.strftime('%d/%m/%Y'),
-                    "Cliente": v.cliente,
-                    "Produto": v.nome_produto,
-                    "Total": f"R$ {v.valor_total_venda:.2f}",
-                    "Status Fiscal": v.status_fiscal,
-                    "Nº NF": v.numero_nf if v.numero_nf else "-"
+                    "ID": v.id, "Data": v.data_venda.strftime('%d/%m/%Y'), "Cliente": v.cliente,
+                    "Produto": v.nome_produto, "Total": f"R$ {v.valor_total_venda:.2f}",
+                    "Status Fiscal": v.status_fiscal, "Nº NF": v.numero_nf if v.numero_nf else "-"
                 } for v in todas_vendas])
-                
                 st.dataframe(df_vendas, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhuma venda registrada até o momento.")
                 
-        # --- ABA 3: PAINEL FISCAL (MÓDULO SEFAZ / API) ---
         with tab_fiscal:
             st.subheader("📡 Central de Integração com SEFAZ")
-            
             vendas_pendentes = session.query(Venda).filter_by(status_fiscal="Pendente").all()
-            
             if vendas_pendentes:
                 st.warning(f"Existem {len(vendas_pendentes)} vendas aguardando emissão de nota fiscal.")
-                
                 venda_sel_str = st.selectbox(
                     "Selecione o pedido para faturar:", 
                     [f"{v.id} | Cliente: {v.cliente} - {v.nome_produto} (R$ {v.valor_total_venda:.2f})" for v in vendas_pendentes]
                 )
-                
                 id_venda_fiscal = int(venda_sel_str.split(" | ")[0])
                 venda_fiscal = session.query(Venda).filter_by(id=id_venda_fiscal).first()
-                
                 tipo_nota = st.radio("Selecione o modelo da nota:", ["NFC-e (Consumidor Final)", "NF-e (Produto/Atacado)"], horizontal=True)
                 
                 st.divider()
                 st.write("**Simulação do Payload (JSON que será enviado para a API):**")
-                
-                # Este é o esqueleto exato da estrutura que a API vai exigir na próxima etapa
                 payload_mock = {
                     "natureza_operacao": "Venda de mercadoria",
                     "data_emissao": date.today().isoformat(),
                     "consumidor_final": 1 if "NFC-e" in tipo_nota else 0,
-                    "itens": [
-                        {
-                            "numero_item": 1,
-                            "descricao": venda_fiscal.nome_produto,
-                            "cfop": "5102", # Código padrão para revenda/venda estadual
-                            "unidade_comercial": "UN",
-                            "quantidade_comercial": venda_fiscal.quantidade_vendida,
-                            "valor_unitario_comercial": venda_fiscal.preco_unitario_venda,
-                            "valor_bruto": venda_fiscal.valor_total_venda,
-                        }
-                    ],
-                    "pagamentos": [
-                        {
-                            "forma_pagamento": "Dinheiro/Pix",
-                            "valor_pagamento": venda_fiscal.valor_total_venda
-                        }
-                    ]
+                    "itens": [{
+                        "numero_item": 1, "descricao": venda_fiscal.nome_produto,
+                        "cfop": "5102", "unidade_comercial": "UN",
+                        "quantidade_comercial": venda_fiscal.quantidade_vendida,
+                        "valor_unitario_comercial": venda_fiscal.preco_unitario_venda,
+                        "valor_bruto": venda_fiscal.valor_total_venda,
+                    }],
+                    "pagamentos": [{
+                        "forma_pagamento": "Dinheiro/Pix",
+                        "valor_pagamento": venda_fiscal.valor_total_venda
+                    }]
                 }
-                
                 st.json(payload_mock)
                 
                 if st.button("🚀 Enviar para SEFAZ-BA (API Focus NFe)", type="primary"):
                     try:
-                        # 1. Pega a senha silenciosamente do seu cofre
                         token = st.secrets["focus_nfe"]["token_sandbox"]
-                        
-                        # 2. Define para qual endereço o pacote vai (Endpoint de NFC-e)
                         url_api = "https://api.focusnfe.com.br/v2/nfce"
-                        
-                        # A Focus NFe usa o token como usuário e deixa a senha em branco
                         autenticacao = (token, "") 
-                        
-                        # 3. Dispara a requisição para a internet
                         with st.spinner("Conectando aos servidores do Governo da Bahia..."):
-                            # Usamos um timeout para o sistema não travar se a SEFAZ estiver fora do ar
                             resposta = requests.post(url_api, json=payload_mock, auth=autenticacao, timeout=15)
-                        
-                        # 4. O Cérebro: Interpreta a resposta da SEFAZ
                         if resposta.status_code in [200, 201, 202]:
-                            # Sucesso! A nota foi gerada ou está em processamento
                             dados_retorno = resposta.json()
-                            
-                            # Puxa o número oficial ou cria um rastreio provisório
                             numero_oficial = dados_retorno.get("numero", f"API-{venda_fiscal.id}")
-                            
-                            # Grava no seu banco de dados
                             venda_fiscal.status_fiscal = "Emitida"
                             venda_fiscal.numero_nf = numero_oficial
                             session.commit()
-                            
                             st.success(f"✅ Sucesso! NFC-e {numero_oficial} autorizada.")
                             st.rerun()
                         else:
-                            # Rejeição da SEFAZ (ex: NCM do chocolate incorreto, CNPJ inválido)
-                            # O sistema tenta ler a mensagem de erro oficial para você saber o que corrigir
-                            try:
-                                erro_msg = resposta.json().get("mensagem", resposta.text)
-                            except:
-                                erro_msg = resposta.text
-                                
+                            try: erro_msg = resposta.json().get("mensagem", resposta.text)
+                            except: erro_msg = resposta.text
                             st.error(f"❌ Rejeição Fiscal (Código {resposta.status_code}): {erro_msg}")
-                            
                     except FileNotFoundError:
                          st.error("⚠️ Arquivo secrets.toml não encontrado na pasta .streamlit!")
                     except Exception as e:
                         st.error(f"⚠️ Erro de conexão de rede com a API: {e}")
 
-# 🔹 ADICIONA ESTE BLOCO NO FINAL DO TEU APP.PY:
+    # ==========================================
+    # PÁGINA 10: PAINEL ADMIN
+    # ==========================================
     elif menu == "⚙️ Painel Admin":
         if st.session_state.cargo_atual != "Super Admin":
             st.error("🚫 Acesso Negado. Apenas o Super Administrador pode aceder a este módulo.")
@@ -1485,7 +1327,6 @@ else:
                     
                     st.divider()
                     st.write("**Liberação de Módulos (Selecione o que o funcionário pode aceder):**")
-                    
                     modulos_selecionados = []
                     col_cb1, col_cb2, col_cb3 = st.columns(3)
                     
@@ -1505,11 +1346,8 @@ else:
                             hash_senha = criptografar_senha(senha_func)
                             string_modulos = ",".join(modulos_selecionados)
                             novo_usr = Usuario(
-                                username=login_func,
-                                senha_hash=hash_senha, 
-                                nome_completo=nome_func,
-                                cargo=cargo_func,
-                                modulos_acesso=string_modulos
+                                username=login_func, senha_hash=hash_senha, 
+                                nome_completo=nome_func, cargo=cargo_func, modulos_acesso=string_modulos
                             )
                             session.add(novo_usr)
                             session.commit()
@@ -1518,34 +1356,24 @@ else:
                         else:
                             st.error("Preencha o utilizador e a senha.")
 
-# --- NOVO BLOCO: EDITAR E REVOGAR ACESSOS ---
             with st.expander("✏️ Editar ou Revogar Permissões de Usuários Existentes", expanded=False):
-                # Busca todos os usuários, exceto o Super Admin (para evitar que você tranque a si mesmo de fora)
                 usuarios_existentes = session.query(Usuario).filter(Usuario.cargo != "Super Admin").all()
-                
                 if usuarios_existentes:
                     usuario_selecionado = st.selectbox(
                         "Selecione o Funcionário para alterar acessos:", 
                         [f"{u.id} | {u.nome_completo} ({u.cargo})" for u in usuarios_existentes]
                     )
-                    
-                    # Puxa o ID do usuário selecionado no menu suspenso
                     id_edit = int(usuario_selecionado.split(" | ")[0])
                     usr_edit = session.query(Usuario).filter_by(id=id_edit).first()
-                    
                     st.write(f"**Editando acessos de:** {usr_edit.nome_completo} ({usr_edit.username})")
                     
-                    # Descobre quais módulos ele já tem hoje para deixar as caixinhas pré-marcadas
                     modulos_atuais = usr_edit.modulos_acesso.split(",") if usr_edit.modulos_acesso else []
                     
                     with st.form("form_editar_permissoes"):
                         modulos_atualizados = []
                         col_e1, col_e2, col_e3 = st.columns(3)
-                        
                         for idx, mod in enumerate(TODOS_MODULOS[:-1]):
-                            # A caixinha já aparece marcada se o módulo estiver no banco de dados dele
                             is_checked = mod in modulos_atuais
-                            
                             if idx % 3 == 0:
                                 with col_e1:
                                     if st.checkbox(mod, value=is_checked, key=f"edit_cb_{idx}"): modulos_atualizados.append(mod)
@@ -1557,15 +1385,12 @@ else:
                                     if st.checkbox(mod, value=is_checked, key=f"edit_cb_{idx}"): modulos_atualizados.append(mod)
                                     
                         if st.form_submit_button("🔄 Atualizar Permissões", type="primary"):
-                            # Transforma a nova lista de marcações em texto e salva por cima da antiga
                             nova_string_modulos = ",".join(modulos_atualizados)
                             usr_edit.modulos_acesso = nova_string_modulos
                             session.commit()
-                            
                             st.success(f"Permissões de {usr_edit.nome_completo} atualizadas com sucesso!")
                             st.rerun()
                 else:
                     st.info("Nenhum usuário comum cadastrado ainda para ser editado.")
-
 
 session.close()
