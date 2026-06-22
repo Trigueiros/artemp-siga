@@ -99,7 +99,7 @@ if not st.session_state.logado:
         st.markdown("<h1 style='text-align: center;'>🌌 Orion Syst</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-size: 1.2rem; margin-bottom: 2rem;'>Portal de Acesso Corporativo</p>", unsafe_allow_html=True)
         
-        aba_login, aba_cadastro = st.tabs(["🔑 Acessar Sistema", "📝 Criar Usuário Local"])
+        aba_login, aba_cadastro, aba_recuperacao = st.tabs(["🔑 Acessar Sistema", "📝 Criar Usuário Local", "🔄 Esqueci a Senha"])
         
         with aba_login:
             with st.form("form_login"):
@@ -159,6 +159,40 @@ if not st.session_state.logado:
                             st.success("Usuário cadastrado com sucesso! Faça login na primeira aba.")
                     else:
                         st.error("Por favor, preencha todos os campos.")
+
+                # ==========================================
+        # ABA 3: RECUPERAÇÃO DE SENHA
+        # ==========================================
+        with aba_recuperacao:
+            with st.form("form_recuperacao"):
+                st.markdown("<h4 style='text-align: center;'>Recuperação de Credenciais</h4>", unsafe_allow_html=True)
+                st.markdown("<p style='text-align: center; font-size: 0.9rem;'>Valide sua identidade corporativa para criar uma nova senha.</p>", unsafe_allow_html=True)
+                
+                rec_user = st.text_input("Seu Usuário (Username):")
+                rec_nome = st.text_input("Seu Nome Completo (Exatamente como cadastrado):")
+                rec_nova_senha = st.text_input("Definir Nova Senha:", type="password")
+                
+                st.write("") # Espaçamento
+                btn_recuperar = st.form_submit_button("🔄 Redefinir Senha", use_container_width=True)
+                
+                if btn_recuperar:
+                    if rec_user and rec_nome and rec_nova_senha:
+                        # 1. Limpa os espaços e busca o usuário no banco
+                        usuario_alvo = session.query(Usuario).filter_by(username=rec_user.strip().lower()).first()
+                        
+                        if usuario_alvo:
+                            # 2. Cruza o nome digitado com o nome do banco (ignorando maiúsculas e minúsculas para facilitar)
+                            if usuario_alvo.nome_completo.strip().lower() == rec_nome.strip().lower():
+                                # 3. Se a identidade for confirmada, esmaga a senha velha com a nova criptografada
+                                usuario_alvo.senha_hash = criptografar_senha(rec_nova_senha.strip())
+                                session.commit()
+                                st.success("✅ Identidade confirmada e senha redefinida com sucesso! Volte à primeira aba para acessar.")
+                            else:
+                                st.error("❌ Falha na validação: O Nome Completo não corresponde ao titular deste usuário.")
+                        else:
+                            st.error("❌ Usuário não localizado no banco de dados da Orion Syst.")
+                    else:
+                        st.warning("⚠️ Preencha todos os campos do formulário de validação.")
 # =====================================================================
 # SISTEMA PRINCIPAL (SÓ CARREGA SE O PORTEIRO LIBERAR)
 # =====================================================================
