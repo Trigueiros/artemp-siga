@@ -21,13 +21,20 @@ from googleapiclient.http import MediaIoBaseUpload
 # 1. CONFIGURAÇÃO INICIAL
 st.set_page_config(page_title="Orion Syst", layout="wide")
 
-# O Streamlit puxa a senha do cofre e conecta na nuvem
-url_banco = st.secrets["banco_nuvem"]["url"]
-engine = create_engine(url_banco, echo=False)
+# ========================================================
+# CONEXÃO OTIMIZADA COM A NUVEM (CACHE)
+# ========================================================
+# O decorador @st.cache_resource impede que o Streamlit feche a conexão a cada clique
+@st.cache_resource
+def iniciar_conexao():
+    url_banco = st.secrets["banco_nuvem"]["url"]
+    # pool_pre_ping garante que a conexão não "durma" por inatividade
+    motor = create_engine(url_banco, echo=False, pool_pre_ping=True)
+    Base.metadata.create_all(motor)
+    return sessionmaker(bind=motor)
 
-Base.metadata.create_all(engine)
-
-Session = sessionmaker(bind=engine)
+# Abre o túnel apenas na primeira vez e usa a mesma rota nas próximas
+Session = iniciar_conexao()
 session = Session()
 
 def criptografar_senha(senha):
@@ -80,7 +87,6 @@ def carregar_lottie_url(url: str):
     except:
         return None
 
-# Link da animação (pode ser trocado por outro do LottieFiles depois)
 animacao_orion = carregar_lottie_url("https://assets3.lottiefiles.com/packages/lf20_tno6cg2w.json")
 
 # =====================================================================
@@ -88,16 +94,13 @@ animacao_orion = carregar_lottie_url("https://assets3.lottiefiles.com/packages/l
 # =====================================================================
 if not st.session_state.logado:
     
-    # Criamos 3 colunas: as das pontas (1) empurram a do meio (1.5) para o centro exato
     col_vazia_esq, col_centro, col_vazia_dir = st.columns([1, 1.5, 1])
     
     with col_vazia_esq:
-        # Coloca a animação para rodar na coluna da esquerda
         if animacao_orion:
             st_lottie(animacao_orion, height=350, key="anim_espaco")
             
     with col_centro:
-        # Usamos HTML básico para forçar o alinhamento do texto no centro
         st.markdown("<h1 style='text-align: center;'>🌌 Orion Syst</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray; font-size: 1.2rem; margin-bottom: 2rem;'>Portal de Acesso Corporativo</p>", unsafe_allow_html=True)
         
@@ -109,21 +112,17 @@ if not st.session_state.logado:
                 user_input = st.text_input("Usuário (Username)")
                 senha_input = st.text_input("Senha", type="password")
                 
-                st.write("") # Espaçamento
+                st.write("")
                 btn_entrar = st.form_submit_button("Entrar no ERP", use_container_width=True)
                 
                 if btn_entrar:
                     with st.spinner("🚀 Autenticando credenciais no Orion Syst..."):
-                        time.sleep(1.5) # Pausa tecnológica
+                        time.sleep(1.5)
                         
-                        # 1. Limpeza rigorosa
                         usuario_limpo = user_input.strip().lower()
                         senha_limpa = senha_input.strip()
-                        
-                        # 2. Criptografa a senha
                         hash_busca = criptografar_senha(senha_limpa)
                         
-                        # 3. Busca no banco
                         usuario_encontrado = session.query(Usuario).filter_by(username=usuario_limpo, senha_hash=hash_busca).first()
                         
                         if usuario_encontrado:
@@ -146,7 +145,7 @@ if not st.session_state.logado:
                 nova_senha = st.text_input("Definir Senha", type="password")
                 novo_cargo = st.selectbox("Cargo/Nível de Acesso:", ["Operador de Almoxarifado", "Supervisor de SGI", "Gerente de Operações","Técnico","Diretor","Assistente","Outros"])
                 
-                st.write("") # Espaçamento
+                st.write("")
                 btn_cadastrar = st.form_submit_button("Salvar no Sistema", use_container_width=True)
                 
                 if btn_cadastrar:
@@ -175,7 +174,7 @@ if not st.session_state.logado:
                 rec_nome = st.text_input("Seu Nome Completo (Exatamente como cadastrado):")
                 rec_nova_senha = st.text_input("Definir Nova Senha:", type="password")
                 
-                st.write("") # Espaçamento
+                st.write("")
                 btn_recuperar = st.form_submit_button("🔄 Redefinir Senha", use_container_width=True)
                 
                 if btn_recuperar:
@@ -210,22 +209,7 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
-    # BUSCA DOS DADOS GERAIS
-    todos_residuos = session.query(Residuo).all()
-    todas_licencas = session.query(Licenca).all()
-    todas_ncs = session.query(NaoConformidade).all() 
-
-    if todos_residuos:
-        df = pd.DataFrame([{
-            "ID": r.id, "Material": r.nome, "Classe": r.classe_nbr, 
-            "Peso (kg)": r.quantidade_kg, "Status": r.status_logistica,
-            "MTR (SINIR)": r.numero_mtr if r.numero_mtr else "Não Emitido",
-            "Data de Registro": r.data_registro
-        } for r in todos_residuos])
-        df['Data de Registro'] = pd.to_datetime(df['Data de Registro'])
-    else:
-        df = pd.DataFrame(columns=["ID", "Material", "Classe", "Peso (kg)", "Status", "MTR (SINIR)", "Data de Registro"])
-
+    # Variáveis Globais Leves
     hoje = date.today()
     ano_atual = hoje.year
 
@@ -250,7 +234,7 @@ else:
         "⚠️ Não Conformidades",
         "📦 Almoxarifado / Estoque",
         "🏭 Produção (MRP)",
-        "🛒 Pedidos de Compra", # <-- INSERIDO AQUI
+        "🛒 Pedidos de Compra", 
         "💰 Comercial / Vendas", 
         "📋 Kanban de Tarefas", 
         "⚙️ Painel Admin"
@@ -271,6 +255,21 @@ else:
     if menu == "📊 Dashboard":
         st.title("📊 Painel de Controle e Inteligência")
         
+        # 🔥 LAZY LOADING: Dashboard
+        todos_residuos = session.query(Residuo).all()
+        todas_licencas = session.query(Licenca).all()
+
+        if todos_residuos:
+            df = pd.DataFrame([{
+                "ID": r.id, "Material": r.nome, "Classe": r.classe_nbr, 
+                "Peso (kg)": r.quantidade_kg, "Status": r.status_logistica,
+                "MTR (SINIR)": r.numero_mtr if r.numero_mtr else "Não Emitido",
+                "Data de Registro": r.data_registro
+            } for r in todos_residuos])
+            df['Data de Registro'] = pd.to_datetime(df['Data de Registro'])
+        else:
+            df = pd.DataFrame(columns=["ID", "Material", "Classe", "Peso (kg)", "Status", "MTR (SINIR)", "Data de Registro"])
+
         aba_ambiental, aba_financeira = st.tabs(["🌱 Indicadores Ambientais (SGI)", "💰 Inteligência Financeira (DRE)"])
         
         with aba_ambiental:
@@ -383,6 +382,20 @@ else:
     # ==========================================
     elif menu == "📝 Lançamentos":
         st.title("📝 Gestão do Inventário")
+
+        # 🔥 LAZY LOADING: Lançamentos
+        todos_residuos = session.query(Residuo).all()
+        if todos_residuos:
+            df = pd.DataFrame([{
+                "ID": r.id, "Material": r.nome, "Classe": r.classe_nbr, 
+                "Peso (kg)": r.quantidade_kg, "Status": r.status_logistica,
+                "MTR (SINIR)": r.numero_mtr if r.numero_mtr else "Não Emitido",
+                "Data de Registro": r.data_registro
+            } for r in todos_residuos])
+            df['Data de Registro'] = pd.to_datetime(df['Data de Registro'])
+        else:
+            df = pd.DataFrame(columns=["ID", "Material", "Classe", "Peso (kg)", "Status", "MTR (SINIR)", "Data de Registro"])
+
         with st.expander("➕ Adicionar Novo Resíduo", expanded=False):
             with st.form("form_novo_residuo"):
                 col_f1, col_f2 = st.columns(2)
@@ -398,6 +411,7 @@ else:
                         session.add(novo)
                         session.commit()
                         st.success("Resíduo registrado com sucesso!")
+                        st.rerun()
                     else:
                         st.error("Preencha todos os campos.")
 
@@ -432,12 +446,14 @@ else:
                             residuo_alterar.numero_mtr = mtr_input
                             session.commit()
                             st.success("Dados atualizados com sucesso!")
+                            st.rerun()
                     with col_btn2:
                         if st.checkbox("Confirmar exclusão permanente"):
                             if st.button("🗑️ Eliminar", type="primary", use_container_width=True):
                                 session.delete(residuo_alterar)
                                 session.commit()
                                 st.success("Eliminado!")
+                                st.rerun()
         else:
             st.info("Nenhum material no inventário.")
 
@@ -446,6 +462,10 @@ else:
     # ==========================================
     elif menu == "📅 Licenças":
         st.title("📅 Controle de Conformidade Legal")
+
+        # 🔥 LAZY LOADING: Licenças
+        todas_licencas = session.query(Licenca).all()
+
         if not todas_licencas:
             st.info("Nenhuma licença cadastrada.")
         else:
@@ -505,6 +525,9 @@ else:
     # ==========================================
     elif menu == "⚠️ Não Conformidades":
         st.title("⚠️ Tratamento de Não Conformidades e Matriz de Risco")
+
+        # 🔥 LAZY LOADING: Não Conformidades
+        todas_ncs = session.query(NaoConformidade).all()
         
         # 1. FORMULÁRIO DE CADASTRO DE NC COM MATRIZ DE RISCO
         with st.expander("➕ Registrar Nova Não Conformidade (RNC)", expanded=False):
@@ -1180,6 +1203,254 @@ else:
             else:
                 st.warning("Para compor uma Ficha Técnica, você precisa primeiro ter Insumos cadastrados no Almoxarifado e criar uma Ficha Base no botão acima.")
 
+    # =====================================================================
+    # PÁGINA: PEDIDOS DE COMPRA (SUPRIMENTOS)
+    # =====================================================================
+    elif menu == "🛒 Pedidos de Compra":
+        st.title("🛒 Gestão de Suprimentos e Alçadas de Compra")
+        
+        tab_gerar, tab_aprovar, tab_status = st.tabs([
+            "➕ Gerar Pedido de Compra", 
+            "⚖️ Alçada de Aprovação", 
+            "📊 Status e Emissão de Guia"
+        ])
+        
+        # --- ABA 1: GERAR PEDIDO DE COMPRA ---
+        with tab_gerar:
+            st.subheader("📝 Abertura de Requisição de Suprimentos")
+            todos_insumos = session.query(Estoque).all()
+            
+            with st.form("form_cabecalho_pc"):
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    fornecedor_pc = st.text_input("Fornecedor Cotado:")
+                with col_p2:
+                    ultimo_pc = session.query(PedidoCompra).order_by(PedidoCompra.id.desc()).first()
+                    prox_id = ultimo_pc.id + 1 if ultimo_pc else 1
+                    cod_pc_gerado = f"PC-{prox_id:04d}"
+                    st.text_input("Código do Pedido (Automático):", value=cod_pc_gerado, disabled=True)
+                
+                st.write("---")
+                st.write("💡 *Insira os itens do pedido na tabela de composição abaixo antes de submeter.*")
+                
+                if "carrinho_compras" not in st.session_state:
+                    st.session_state.carrinho_compras = []
+                
+                col_i1, col_i2, col_i3 = st.columns([2, 1, 1])
+                with col_i1:
+                    insumo_sel = st.selectbox("Selecione o Insumo/Material:", [f"{i.id} | {i.nome_material} ({i.unidade_medida})" for i in todos_insumos] if todos_insumos else ["Nenhum insumo cadastrado"])
+                with col_i2:
+                    qtd_compra = st.number_input("Quantidade Requisitada:", min_value=0.01, format="%.2f")
+                with col_i3:
+                    preco_cotado = st.number_input("Preço Unitário Cotado (R$):", min_value=0.01, format="%.2f")
+                
+                if st.form_submit_button("➕ Adicionar Item ao Pedido"):
+                    if todos_insumos and insumo_sel:
+                        id_ins = int(insumo_sel.split(" | ")[0])
+                        nome_ins = insumo_sel.split(" | ")[1]
+                        st.session_state.carrinho_compras.append({
+                            "insumo_id": id_ins, "nome": nome_ins,
+                            "quantidade": qtd_compra, "preco": preco_cotado
+                        })
+                        st.toast("Item adicionado à lista temporária!")
+            
+            if st.session_state.carrinho_compras:
+                st.write("### Itens Compostos no Pedido Atual")
+                st.dataframe(pd.DataFrame(st.session_state.carrinho_compras), use_container_width=True)
+                
+                if st.button("💾 Consolidar e Emitir Pedido para Análise", type="primary", use_container_width=True):
+                    if fornecedor_pc:
+                        novo_pedido = PedidoCompra(codigo_pc=cod_pc_gerado, fornecedor=fornecedor_pc, status_global="Aguardando Análise")
+                        session.add(novo_pedido)
+                        session.flush() 
+                        
+                        for item in st.session_state.carrinho_compras:
+                            novo_item = ItemPedidoCompra(
+                                pedido_id=novo_pedido.id, insumo_id=item["insumo_id"],
+                                quantidade_solicitada=item["quantidade"], preco_unitario_cotado=item["preco"],
+                                status_item="Pendente"
+                            )
+                            session.add(novo_item)
+                        
+                        session.commit()
+                        st.session_state.carrinho_compras = []
+                        st.success(f"Pedido {cod_pc_gerado} enviado com sucesso para a Mesa de Aprovação!")
+                        st.rerun()
+                    else:
+                        st.error("Por favor, preencha o nome do fornecedor.")
+            
+        # --- ABA 2: ALÇADA DE APROVAÇÃO (WORKFLOW) ---
+        with tab_aprovar:
+            st.subheader("⚖️ Mesa de Análise e Liberação de Verbas")
+            pedidos_pendentes = session.query(PedidoCompra).filter_by(status_global="Aguardando Análise").all()
+            
+            if not pedidos_pendentes:
+                st.info("Nenhum pedido de compra aguardando análise de orçamento no momento.")
+            else:
+                pc_selecionado_str = st.selectbox("Selecione o Código do Pedido para Auditar:", [f"{p.id} | {p.codigo_pc} - Fornecedor: {p.fornecedor}" for p in pedidos_pendentes])
+                id_pc_analise = int(pc_selecionado_str.split(" | ")[0])
+                
+                pc_banco = session.query(PedidoCompra).filter_by(id=id_pc_analise).first()
+                itens_pc = session.query(ItemPedidoCompra).filter_by(pedido_id=id_pc_analise).all()
+                
+                st.write(f"**Fornecedor:** {pc_banco.fornecedor} | **Data de Emissão:** {pc_banco.data_emissao.strftime('%d/%m/%Y')}")
+                st.write("#### Itens da Requisição (Defina o parecer individual):")
+                
+                mudou_algo = False
+                for item in itens_pc:
+                    insumo_nome = session.query(Estoque).filter_by(id=item.insumo_id).first().nome_material
+                    with st.container(border=True):
+                        col_i_nome, col_i_det, col_i_acao = st.columns([2, 2, 2])
+                        with col_i_nome:
+                            st.write(f"🔹 **{insumo_nome}**")
+                        with col_i_det: 
+                            v_total_item = item.quantidade_solicitada * item.preco_unitario_cotado
+                            st.write(f"Qtd: {item.quantidade_solicitada:.2f} | Total: R$ {v_total_item:.2f}")
+                        with col_i_acao:
+                            opcoes_status = ["Pendente", "Aprovado", "Negado"]
+                            idx_item_st = opcoes_status.index(item.status_item)
+                            novo_st_item = st.selectbox(f"Parecer item #{item.id}:", opcoes_status, index=idx_item_st, label_visibility="collapsed")
+                            if novo_st_item != item.status_item:
+                                item.status_item = novo_st_item
+                                mudou_algo = True
+                
+                obs_gestor = st.text_area("Justificativa ou Observações de Governança:")
+                
+                if st.button("🔒 Finalizar Julgamento da Alçada", type="primary", use_container_width=True) or mudou_algo:
+                    tot_itens = len(itens_pc)
+                    aprovados = sum(1 for i in itens_pc if i.status_item == "Aprovado")
+                    negados = sum(1 for i in itens_pc if i.status_item == "Negado")
+                    
+                    if aprovados == tot_itens:
+                        pc_banco.status_global = "Aprovado"
+                    elif negados == tot_itens:
+                        pc_banco.status_global = "Negado"
+                    elif aprovados > 0:
+                        pc_banco.status_global = "Aprovado Parcialmente"
+                    else:
+                        pc_banco.status_global = "Aguardando Análise"
+                        
+                    pc_banco.observacao_gestao = obs_gestor
+                    session.commit()
+                    st.success("Parecer processado e atualizado no banco de dados!")
+                    st.rerun()
+
+        # --- ABA 3: STATUS E EMISSÃO DE GUIAS ---
+        with tab_status:
+            st.subheader("📊 Monitoramento e Emissão de Documentos de Compra")
+            todos_pedidos = session.query(PedidoCompra).order_by(PedidoCompra.id.desc()).all()
+            
+            if not todos_pedidos:
+                st.info("Nenhum histórico de compras registrado.")
+            else:
+                dados_tabela_pc = []
+                for p in todos_pedidos:
+                    itens = session.query(ItemPedidoCompra).filter_by(pedido_id=p.id).all()
+                    v_total_pc = sum(i.quantidade_solicitada * i.preco_unitario_cotado for i in itens)
+                    dados_tabela_pc.append({
+                        "ID": p.id, "Código": p.codigo_pc, "Fornecedor": p.fornecedor,
+                        "Data": p.data_emissao.strftime('%d/%m/%Y'), "Valor Total": f"R$ {v_total_pc:.2f}",
+                        "Status do Pedido": p.status_global
+                    })
+                
+                df_pc = pd.DataFrame(dados_tabela_pc)
+                
+                def colorir_status_pc(val):
+                    if val == 'Aprovado': color = '#00cc66'
+                    elif val == 'Aprovado Parcialmente': color = '#ffa500'
+                    elif val == 'Negado': color = '#ff4b4b'
+                    else: color = '#888888'
+                    return f'color: {color}; font-weight: bold'
+                
+                st.dataframe(df_pc.style.map(colorir_status_pc, subset=['Status do Pedido']), use_container_width=True, hide_index=True)
+                
+                st.write("---")
+                st.write("#### 🖨️ Emitir Guia Oficial de Fornecimento")
+                pc_guia_str = st.selectbox("Escolha um pedido concluído para gerar a guia de impressão:", [f"{p['ID']} | {p['Código']} - {p['Fornecedor']} ({p['Status do Pedido']})" for p in dados_tabela_pc])
+                
+                if pc_guia_str:
+                    import streamlit.components.v1 as components 
+                    
+                    id_guia = int(pc_guia_str.split(" | ")[0])
+                    pc_guia = session.query(PedidoCompra).filter_by(id=id_guia).first()
+                    itens_guia = session.query(ItemPedidoCompra).filter_by(pedido_id=id_guia).all()
+                    
+                    linhas_tabela = ""
+                    for it in itens_guia:
+                        ins_nome = session.query(Estoque).filter_by(id=it.insumo_id).first().nome_material
+                        linhas_tabela += f"""
+                            <tr>
+                                <td>{ins_nome}</td>
+                                <td>{it.quantidade_solicitada}</td>
+                                <td>R$ {it.preco_unitario_cotado:.2f}</td>
+                                <td>{it.status_item}</td>
+                            </tr>
+                        """
+                    
+                    html_guia = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; padding: 20px; color: #333; background-color: white; }}
+                            .cabecalho {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }}
+                            .info {{ margin-bottom: 20px; line-height: 1.6; font-size: 14px; }}
+                            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
+                            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                            th {{ background-color: #f2f2f2; }}
+                            .rodape {{ font-size: 12px; color: #777; text-align: center; margin-top: 40px; }}
+                            
+                            .btn-imprimir {{ 
+                                display: block; width: 100%; padding: 12px; 
+                                background-color: #2e7b32; color: white; 
+                                text-align: center; font-size: 16px; font-weight: bold;
+                                border: none; border-radius: 5px; cursor: pointer;
+                                margin-bottom: 20px; transition: 0.3s;
+                            }}
+                            .btn-imprimir:hover {{ background-color: #1b5e20; }}
+                            
+                            @media print {{
+                                .btn-imprimir {{ display: none !important; }}
+                                body {{ padding: 0; }}
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <button class="btn-imprimir" onclick="window.print()">🖨️ Clique Aqui para Imprimir a Guia Oficial</button>
+                        
+                        <div class="cabecalho">
+                            <h2>ORION SYST - GUIA DE PEDIDO DE COMPRA</h2>
+                        </div>
+                        
+                        <div class="info">
+                            <strong>Documento de Rastreio:</strong> {pc_guia.codigo_pc} <span style="float:right;"><strong>Data Base:</strong> {pc_guia.data_emissao.strftime('%d/%m/%Y')}</span><br>
+                            <strong>Parceiro Comercial:</strong> {pc_guia.fornecedor}<br>
+                            <strong>Status Atual do Processo:</strong> {pc_guia.status_global.upper()}<br>
+                            <strong>Parecer da Auditoria:</strong> {pc_guia.observacao_gestao or 'Sem observações anexadas.'}
+                        </div>
+                        
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Item / Insumo</th>
+                                    <th>Qtd Requisitada</th>
+                                    <th>Preço Cotado</th>
+                                    <th>Status do Item</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {linhas_tabela}
+                            </tbody>
+                        </table>
+                        
+                        <div class="rodape">
+                            ⚠️ Documento controlado eletronicamente por alçadas de risco integradas do Órion Syst.<br>Dispensada assinatura física.
+                        </div>
+                    </body>
+                    </html>
+                    """
+                    components.html(html_guia, height=550, scrolling=True)
+
     # ==========================================
     # PÁGINA 9: COMERCIAL E FATURAMENTO
     # ==========================================
@@ -1399,273 +1670,4 @@ else:
                 else:
                     st.info("Nenhum usuário comum cadastrado ainda para ser editado.")
 
-# =====================================================================
-    # PÁGINA: PEDIDOS DE COMPRA (SUPLIMENTOS)
-    # =====================================================================
-    # =====================================================================
-    # PÁGINA: PEDIDOS DE COMPRA (SUPRIMENTOS)
-    # =====================================================================
-    elif menu == "🛒 Pedidos de Compra":
-        st.title("🛒 Gestão de Suprimentos e Alçadas de Compra")
-        
-        # CORREÇÃO 1 AQUI: Os nomes das variáveis agora batem exatamente com as abas lá embaixo
-        tab_gerar, tab_aprovar, tab_status = st.tabs([
-            "➕ Gerar Pedido de Compra", 
-            "⚖️ Alçada de Aprovação", 
-            "📊 Status e Emissão de Guia"
-        ])
-        
-        # --- ABA 1: GERAR PEDIDO DE COMPRA ---
-        with tab_gerar:
-            st.subheader("📝 Abertura de Requisição de Suprimentos")
-            todos_insumos = session.query(Estoque).all()
-            
-            with st.form("form_cabecalho_pc"):
-                col_p1, col_p2 = st.columns(2)
-                with col_p1:
-                    fornecedor_pc = st.text_input("Fornecedor Cotado:")
-                with col_p2:
-                    # Rastreamento de código padrão SAP
-                    ultimo_pc = session.query(PedidoCompra).order_by(PedidoCompra.id.desc()).first()
-                    prox_id = ultimo_pc.id + 1 if ultimo_pc else 1
-                    cod_pc_gerado = f"PC-{prox_id:04d}"
-                    st.text_input("Código do Pedido (Automático):", value=cod_pc_gerado, disabled=True)
-                
-                st.write("---")
-                st.write("💡 *Insira os itens do pedido na tabela de composição abaixo antes de submeter.*")
-                
-                # Armazenamento temporário de itens na sessão para criar o pedido completo de uma vez
-                if "carrinho_compras" not in st.session_state:
-                    st.session_state.carrinho_compras = []
-                
-                col_i1, col_i2, col_i3 = st.columns([2, 1, 1])
-                with col_i1:
-                    insumo_sel = st.selectbox("Selecione o Insumo/Material:", [f"{i.id} | {i.nome_material} ({i.unidade_medida})" for i in todos_insumos] if todos_insumos else ["Nenhum insumo cadastrado"])
-                with col_i2:
-                    qtd_compra = st.number_input("Quantidade Requisitada:", min_value=0.01, format="%.2f")
-                with col_i3:
-                    preco_cotado = st.number_input("Preço Unitário Cotado (R$):", min_value=0.01, format="%.2f")
-                
-                if st.form_submit_button("➕ Adicionar Item ao Pedido"):
-                    if todos_insumos and insumo_sel:
-                        id_ins = int(insumo_sel.split(" | ")[0])
-                        nome_ins = insumo_sel.split(" | ")[1]
-                        st.session_state.carrinho_compras.append({
-                            "insumo_id": id_ins, "nome": nome_ins,
-                            "quantidade": qtd_compra, "preco": preco_cotado
-                        })
-                        st.toast("Item adicionado à lista temporária!")
-            
-            # Exibe os itens que estão sendo montados na requisição corrente
-            if st.session_state.carrinho_compras:
-                st.write("### Itens Compostos no Pedido Atual")
-                st.dataframe(pd.DataFrame(st.session_state.carrinho_compras), use_container_width=True)
-                
-                if st.button("💾 Consolidar e Emitir Pedido para Análise", type="primary", use_container_width=True):
-                    if fornecedor_pc:
-                        novo_pedido = PedidoCompra(codigo_pc=cod_pc_gerado, fornecedor=fornecedor_pc, status_global="Aguardando Análise")
-                        session.add(novo_pedido)
-                        session.flush() # Descobre o ID do cabeçalho antes do commit
-                        
-                        for item in st.session_state.carrinho_compras:
-                            novo_item = ItemPedidoCompra(
-                                pedido_id=novo_pedido.id, insumo_id=item["insumo_id"],
-                                quantidade_solicitada=item["quantidade"], preco_unitario_cotado=item["preco"],
-                                status_item="Pendente"
-                            )
-                            session.add(novo_item)
-                        
-                        session.commit()
-                        st.session_state.carrinho_compras = [] # Limpa o carrinho
-                        st.success(f"Pedido {cod_pc_gerado} enviado com sucesso para a Mesa de Aprovação!")
-                        st.rerun()
-                    else:
-                        st.error("Por favor, preencha o nome do fornecedor.")
-            
-        # --- ABA 2: ALÇADA DE APROVAÇÃO (WORKFLOW) ---
-        with tab_aprovar:
-            st.subheader("⚖️ Mesa de Análise e Liberação de Verbas")
-            pedidos_pendentes = session.query(PedidoCompra).filter_by(status_global="Aguardando Análise").all()
-            
-            if not pedidos_pendentes:
-                st.info("Nenhum pedido de compra aguardando análise de orçamento no momento.")
-            else:
-                pc_selecionado_str = st.selectbox("Selecione o Código do Pedido para Auditar:", [f"{p.id} | {p.codigo_pc} - Fornecedor: {p.fornecedor}" for p in pedidos_pendentes])
-                id_pc_analise = int(pc_selecionado_str.split(" | ")[0])
-                
-                pc_banco = session.query(PedidoCompra).filter_by(id=id_pc_analise).first()
-                itens_pc = session.query(ItemPedidoCompra).filter_by(pedido_id=id_pc_analise).all()
-                
-                st.write(f"**Fornecedor:** {pc_banco.fornecedor} | **Data de Emissão:** {pc_banco.data_emissao.strftime('%d/%m/%Y')}")
-                
-                st.write("#### Itens da Requisição (Defina o parecer individual):")
-                
-                # Fluxo dinâmico de aprovação linha por linha
-                mudou_algo = False
-                for item in itens_pc:
-                    insumo_nome = session.query(Estoque).filter_by(id=item.insumo_id).first().nome_material
-                    with st.container(border=True):
-                        col_i_nome, col_i_det, col_i_acao = st.columns([2, 2, 2])
-                        with col_i_nome:
-                            st.write(f"🔹 **{insumo_nome}**")
-                        
-                        # CORREÇÃO 2 AQUI: Ajustado para col_i_det
-                        with col_i_det: 
-                            v_total_item = item.quantidade_solicitada * item.preco_unitario_cotado
-                            st.write(f"Qtd: {item.quantidade_solicitada:.2f} | Total: R$ {v_total_item:.2f}")
-                        
-                        with col_i_acao:
-                            opcoes_status = ["Pendente", "Aprovado", "Negado"]
-                            idx_item_st = opcoes_status.index(item.status_item)
-                            novo_st_item = st.selectbox(f"Parecer item #{item.id}:", opcoes_status, index=idx_item_st, label_visibility="collapsed")
-                            if novo_st_item != item.status_item:
-                                item.status_item = novo_st_item
-                                mudou_algo = True
-                
-                obs_gestor = st.text_area("Justificativa ou Observações de Governança:")
-                
-                if st.button("🔒 Finalizar Julgamento da Alçada", type="primary", use_container_width=True) or mudou_algo:
-                    # LÓGICA DO ROBÔ DE STATUS GLOBAL:
-                    tot_itens = len(itens_pc)
-                    aprovados = sum(1 for i in itens_pc if i.status_item == "Aprovado")
-                    negados = sum(1 for i in itens_pc if i.status_item == "Negado")
-                    
-                    if aprovados == tot_itens:
-                        pc_banco.status_global = "Aprovado"
-                    elif negados == tot_itens:
-                        pc_banco.status_global = "Negado"
-                    elif aprovados > 0:
-                        pc_banco.status_global = "Aprovado Parcialmente"
-                    else:
-                        pc_banco.status_global = "Aguardando Análise"
-                        
-                    pc_banco.observacao_gestao = obs_gestor
-                    session.commit()
-                    st.success("Parecer processado e atualizado no banco de dados!")
-                    st.rerun()
-
-        # --- ABA 3: STATUS E EMISSÃO DE GUIAS ---
-        with tab_status:
-            st.subheader("📊 Monitoramento e Emissão de Documentos de Compra")
-            todos_pedidos = session.query(PedidoCompra).order_by(PedidoCompra.id.desc()).all()
-            
-            if not todos_pedidos:
-                st.info("Nenhum histórico de compras registrado.")
-            else:
-                dados_tabela_pc = []
-                for p in todos_pedidos:
-                    itens = session.query(ItemPedidoCompra).filter_by(pedido_id=p.id).all()
-                    v_total_pc = sum(i.quantidade_solicitada * i.preco_unitario_cotado for i in itens)
-                    dados_tabela_pc.append({
-                        "ID": p.id, "Código": p.codigo_pc, "Fornecedor": p.fornecedor,
-                        "Data": p.data_emissao.strftime('%d/%m/%Y'), "Valor Total": f"R$ {v_total_pc:.2f}",
-                        "Status do Pedido": p.status_global
-                    })
-                
-                df_pc = pd.DataFrame(dados_tabela_pc)
-                
-                # Formatação condicional para os status
-                def colorir_status_pc(val):
-                    if val == 'Aprovado': color = '#00cc66'
-                    elif val == 'Aprovado Parcialmente': color = '#ffa500'
-                    elif val == 'Negado': color = '#ff4b4b'
-                    else: color = '#888888'
-                    return f'color: {color}; font-weight: bold'
-                
-                st.dataframe(df_pc.style.map(colorir_status_pc, subset=['Status do Pedido']), use_container_width=True, hide_index=True)
-                
-                st.write("---")
-                st.write("#### 🖨️ Emitir Guia Oficial de Fornecimento")
-                pc_guia_str = st.selectbox("Escolha um pedido concluído para gerar a guia de impressão:", [f"{p['ID']} | {p['Código']} - {p['Fornecedor']} ({p['Status do Pedido']})" for p in dados_tabela_pc])
-                
-                if pc_guia_str:
-                    if pc_guia_str:
-                        import streamlit.components.v1 as components # Importação local rápida
-                    
-                    id_guia = int(pc_guia_str.split(" | ")[0])
-                    pc_guia = session.query(PedidoCompra).filter_by(id=id_guia).first()
-                    itens_guia = session.query(ItemPedidoCompra).filter_by(pedido_id=id_guia).all()
-                    
-                    # 1. Constrói as linhas da tabela em HTML
-                    linhas_tabela = ""
-                    for it in itens_guia:
-                        ins_nome = session.query(Estoque).filter_by(id=it.insumo_id).first().nome_material
-                        linhas_tabela += f"""
-                            <tr>
-                                <td>{ins_nome}</td>
-                                <td>{it.quantidade_solicitada}</td>
-                                <td>R$ {it.preco_unitario_cotado:.2f}</td>
-                                <td>{it.status_item}</td>
-                            </tr>
-                        """
-                    
-                    # 2. Cria a estrutura completa da folha A4 em HTML puro
-                    html_guia = f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <style>
-                            /* Estilos para deixar a guia com cara de documento fiscal padrão SAP */
-                            body {{ font-family: Arial, sans-serif; padding: 20px; color: #333; background-color: white; }}
-                            .cabecalho {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }}
-                            .info {{ margin-bottom: 20px; line-height: 1.6; font-size: 14px; }}
-                            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }}
-                            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                            th {{ background-color: #f2f2f2; }}
-                            .rodape {{ font-size: 12px; color: #777; text-align: center; margin-top: 40px; }}
-                            
-                            /* O grande botão verde que flutua no topo */
-                            .btn-imprimir {{ 
-                                display: block; width: 100%; padding: 12px; 
-                                background-color: #2e7b32; color: white; 
-                                text-align: center; font-size: 16px; font-weight: bold;
-                                border: none; border-radius: 5px; cursor: pointer;
-                                margin-bottom: 20px; transition: 0.3s;
-                            }}
-                            .btn-imprimir:hover {{ background-color: #1b5e20; }}
-                            
-                            /* A MÁGICA: Quando o papel for impresso, o botão some para não sair na tinta! */
-                            @media print {{
-                                .btn-imprimir {{ display: none !important; }}
-                                body {{ padding: 0; }}
-                            }}
-                        </style>
-                    </head>
-                    <body>
-                        <button class="btn-imprimir" onclick="window.print()">🖨️ Clique Aqui para Imprimir a Guia Oficial</button>
-                        
-                        <div class="cabecalho">
-                            <h2>ORION SYST - GUIA DE PEDIDO DE COMPRA</h2>
-                        </div>
-                        
-                        <div class="info">
-                            <strong>Documento de Rastreio:</strong> {pc_guia.codigo_pc} <span style="float:right;"><strong>Data Base:</strong> {pc_guia.data_emissao.strftime('%d/%m/%Y')}</span><br>
-                            <strong>Parceiro Comercial:</strong> {pc_guia.fornecedor}<br>
-                            <strong>Status Atual do Processo:</strong> {pc_guia.status_global.upper()}<br>
-                            <strong>Parecer da Auditoria:</strong> {pc_guia.observacao_gestao or 'Sem observações anexadas.'}
-                        </div>
-                        
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Item / Insumo</th>
-                                    <th>Qtd Requisitada</th>
-                                    <th>Preço Cotado</th>
-                                    <th>Status do Item</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {linhas_tabela}
-                            </tbody>
-                        </table>
-                        
-                        <div class="rodape">
-                            ⚠️ Documento controlado eletronicamente por alçadas de risco integradas do Órion Syst.<br>Dispensada assinatura física.
-                        </div>
-                    </body>
-                    </html>
-                    """
-                    
-                    # 3. Exibe o documento na tela renderizando o botão nativo do navegador
-                    components.html(html_guia, height=550, scrolling=True)
 session.close()
