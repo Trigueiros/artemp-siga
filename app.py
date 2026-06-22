@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy import create_engine
 # Importamos as tabelas do banco de dados
-from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda, FichaTecnica, IngredienteFicha, PedidoCompra, ItemPedidoCompra
+from banco_dados import Base, Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda, FichaTecnica, IngredienteFicha, PedidoCompra, ItemPedidoCompra
 
 # Importações para o Google Drive
 from google.oauth2.credentials import Credentials
@@ -21,7 +21,12 @@ from googleapiclient.http import MediaIoBaseUpload
 # 1. CONFIGURAÇÃO INICIAL
 st.set_page_config(page_title="Orion Syst", layout="wide")
 
-engine = create_engine('sqlite:///artemp_siga.db', echo=False)
+# O Streamlit puxa a senha do cofre e conecta na nuvem
+url_banco = st.secrets["banco_nuvem"]["url"]
+engine = create_engine(url_banco, echo=False)
+
+Base.metadata.create_all(engine)
+
 Session = sessionmaker(bind=engine)
 session = Session()
 
