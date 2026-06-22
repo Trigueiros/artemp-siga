@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from sqlalchemy import create_engine
 # Importamos a nova tabela NaoConformidade do banco de dados
-from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda
+from banco_dados import Residuo, Licenca, Usuario, NaoConformidade, Estoque, EntradaNF, TarefaKanban, OrdemProducao, ConsumoOP, ProdutoAcabado, Venda, FichaTecnica, IngredienteFicha
 
 # Importações para o Google Drive
 from google.oauth2.credentials import Credentials
@@ -1028,7 +1028,7 @@ else:
     elif menu == "🏭 Produção (MRP)":
         st.title("🏭 Controle de Produção e Produtos Acabados")
         
-        tab_op, tab_estoque_final = st.tabs(["📋 Gestão de Ordens de Produção", "📦 Inventário de Produtos Acabados"])
+        tab_op, tab_estoque_final, tab_ficha = st.tabs(["📋 Gestão de Ordens de Produção", "📦 Produtos Acabados", "📝 Fichas Técnicas (Receitas)"])
         
         # --- ABA 1: ORDENS DE PRODUÇÃO ---
         with tab_op:
@@ -1187,6 +1187,98 @@ else:
                 st.dataframe(df_acabados, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhum produto acabado consta no inventário separado.")
+        
+        # --- ABA 3: ENGENHARIA E FICHAS TÉCNICAS (BOM) ---
+        with tab_ficha:
+            st.subheader("📝 Engenharia de Produto: Custeio e Ficha Técnica")
+            
+            # 1. CRIAR A "CAPA" DA RECEITA
+            with st.expander("➕ Criar Nova Ficha Técnica (Receita)", expanded=False):
+                with st.form("form_nova_ficha"):
+                    col_r1, col_r2 = st.columns(2)
+                    with col_r1:
+                        nome_r = st.text_input("Nome do Produto Final (Ex: Trufa de Morango):")
+                    with col_r2:
+                        rend_r = st.number_input("Rendimento (Quantas unidades essa receita gera?):", min_value=1.0, value=1.0)
+                    
+                    if st.form_submit_button("💾 Salvar Receita Base"):
+                        if nome_r:
+                            nova_ficha = FichaTecnica(nome_receita=nome_r, rendimento=rend_r)
+                            session.add(nova_ficha)
+                            session.commit()
+                            st.success(f"Receita de '{nome_r}' cadastrada! Agora você pode adicionar os ingredientes nela.")
+                            st.rerun()
+                        else:
+                            st.error("Dê um nome para a receita.")
+
+            st.divider()
+
+            todas_fichas = session.query(FichaTecnica).all()
+            todos_insumos = session.query(Estoque).all()
+
+            if todas_fichas and todos_insumos:
+                col_add1, col_add2 = st.columns([1.2, 2])
+
+                # 2. VINCULAR INGREDIENTES DO ALMOXARIFADO
+                with col_add1:
+                    st.write("#### 🛒 Compor Ingredientes")
+                    with st.form("form_add_ingrediente"):
+                        ficha_sel = st.selectbox("Selecione a Receita:", [f"{f.id} | {f.nome_receita}" for f in todas_fichas])
+                        insumo_sel = st.selectbox("Selecione o Insumo no Estoque:", [f"{i.id} | {i.nome_material} (R$ {i.custo_medio:.2f}/{i.unidade_medida.split('(')[-1].replace(')','')})" for i in todos_insumos if i.quantidade > 0])
+                        qtd_usada = st.number_input("Qtd Usada nesta receita (Ex: 0.25 para 250g):", min_value=0.001, format="%.3f")
+
+                        if st.form_submit_button("➕ Adicionar à Ficha", type="primary", use_container_width=True):
+                            id_f = int(ficha_sel.split(" | ")[0])
+                            id_i = int(insumo_sel.split(" | ")[0])
+
+                            novo_ingrediente = IngredienteFicha(ficha_id=id_f, insumo_id=id_i, quantidade_usada=qtd_usada)
+                            session.add(novo_ingrediente)
+                            session.commit()
+                            st.success("Ingrediente vinculado com sucesso!")
+                            st.rerun()
+
+                # 3. VISÃO DO CUSTO MATEMÁTICO REAL (CMV TEÓRICO)
+                with col_add2:
+                    st.write("#### 📊 Simulador de Custo Real (CMV)")
+                    ficha_view_str = st.selectbox("Analisar a Ficha Técnica de:", [f"{f.id} | {f.nome_receita}" for f in todas_fichas], key="view_ficha")
+                    id_view = int(ficha_view_str.split(" | ")[0])
+                    ficha_view = session.query(FichaTecnica).filter_by(id=id_view).first()
+
+                    ingredientes_desta_ficha = session.query(IngredienteFicha).filter_by(ficha_id=id_view).all()
+
+                    if ingredientes_desta_ficha:
+                        custo_total_receita = 0
+                        dados_tabela = []
+
+                        for ing in ingredientes_desta_ficha:
+                            insumo_banco = session.query(Estoque).filter_by(id=ing.insumo_id).first()
+                            
+                            # A mágica do cruzamento de dados: Custo do Almoxarifado x Qtd da Receita
+                            custo_parcial = ing.quantidade_usada * insumo_banco.custo_medio
+                            custo_total_receita += custo_parcial
+
+                            dados_tabela.append({
+                                "Insumo": insumo_banco.nome_material,
+                                "Qtd na Receita": f"{ing.quantidade_usada:.3f}",
+                                "Custo Ref.": f"R$ {insumo_banco.custo_medio:.2f}",
+                                "Impacto no Custo": f"R$ {custo_parcial:.2f}"
+                            })
+
+                        # Calcula o custo de 1 única trufa baseado no rendimento da receita
+                        custo_por_unidade = custo_total_receita / ficha_view.rendimento
+
+                        # Exibe os indicadores financeiros
+                        col_c1, col_c2 = st.columns(2)
+                        with col_c1:
+                            st.metric(label=f"Custo Total da Massa/Lote", value=f"R$ {custo_total_receita:.2f}")
+                        with col_c2:
+                            st.metric(label=f"💰 CMV de 1 Unidade", value=f"R$ {custo_por_unidade:.2f}", delta=f"Rende {ficha_view.rendimento:.0f} un", delta_color="off")
+                        
+                        st.dataframe(pd.DataFrame(dados_tabela), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Esta receita ainda está vazia. Adicione os insumos e embalagens ao lado para ver o cálculo do CMV.")
+            else:
+                st.warning("Para compor uma Ficha Técnica, você precisa primeiro ter Insumos cadastrados no Almoxarifado e criar uma Ficha Base no botão acima.")
 
 # ==========================================
     # PÁGINA 9: COMERCIAL E FATURAMENTO

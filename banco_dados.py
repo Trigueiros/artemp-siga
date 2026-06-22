@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import date
 
@@ -150,6 +150,22 @@ class Venda(Base):
     # --- NOVAS COLUNAS FISCAIS ---
     status_fiscal = Column(String, default="Pendente") # Pendente, Emitida, Erro
     numero_nf = Column(String, nullable=True)          # Guardará o número da NFC-e/NF-e
+
+# ==========================================
+# NOVAS TABELAS: ENGENHARIA DE PRODUTO (MRP)
+# ==========================================
+class FichaTecnica(Base):
+    __tablename__ = 'fichas_tecnicas'
+    id = Column(Integer, primary_key=True)
+    nome_receita = Column(String, nullable=False)
+    rendimento = Column(Float, default=1.0) # Ex: Uma receita rende 50 trufas
+
+class IngredienteFicha(Base):
+    __tablename__ = 'ingredientes_ficha'
+    id = Column(Integer, primary_key=True)
+    ficha_id = Column(Integer, ForeignKey('fichas_tecnicas.id'))
+    insumo_id = Column(Integer, ForeignKey('controle_estoque.id')) # <-- O NOME EXATO AQUI
+    quantidade_usada = Column(Float)
 
 # 3. Executando a criação da tabela no arquivo físico
 
