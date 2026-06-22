@@ -167,6 +167,28 @@ class IngredienteFicha(Base):
     insumo_id = Column(Integer, ForeignKey('controle_estoque.id')) # <-- O NOME EXATO AQUI
     quantidade_usada = Column(Float)
 
+
+# =====================================================================
+# GESTÃO DE SUPRIMENTOS E ALÇADAS DE COMPRA
+# =====================================================================
+class PedidoCompra(Base):
+    __tablename__ = 'pedidos_compra'
+    id = Column(Integer, primary_key=True)
+    codigo_pc = Column(String, nullable=False, unique=True)
+    fornecedor = Column(String, nullable=False)
+    data_emissao = Column(Date, default=date.today)
+    status_global = Column(String, default="Aguardando Análise") # Aguardando Análise, Aprovado, Aprovado Parcialmente, Negado
+    observacao_gestao = Column(String, nullable=True)
+
+class ItemPedidoCompra(Base):
+    __tablename__ = 'itens_pedido_compra'
+    id = Column(Integer, primary_key=True)
+    pedido_id = Column(Integer, ForeignKey('pedidos_compra.id'))
+    insumo_id = Column(Integer, ForeignKey('controle_estoque.id'))
+    quantidade_solicitada = Column(Float, nullable=False)
+    preco_unitario_cotado = Column(Float, nullable=False)
+    status_item = Column(String, default="Pendente") # Pendente, Aprovado, Negado
+
 # 3. Executando a criação da tabela no arquivo físico
 
 Base.metadata.create_all(engine)
